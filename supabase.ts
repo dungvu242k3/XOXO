@@ -1,11 +1,18 @@
 import { createClient, SupabaseClientOptions } from '@supabase/supabase-js';
 
 // Cấu hình Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://edwwzlpmgqqikhtxbzwo.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkd3d6bHBtZ3FxaWtodHhiendvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3MTI1NDgsImV4cCI6MjA4MzI4ODU0OH0.Q0S0iGTnJEQ1tYpw68B0Rzn9K6g5l-DcuHVZjToR9sQ';
+// Ưu tiên lấy từ biến môi trường của Vite (VITE_*)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Fallback chỉ dùng cho môi trường development nếu cần, 
+// nhưng khuyến nghị cấu hình trong .env hoặc Vercel Dashboard
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase URL hoặc Anon Key chưa được cấu hình. Vui lòng thêm vào .env');
+  console.error(
+    'CRITICAL: Supabase URL hoặc Anon Key chưa được cấu hình!\n' +
+    'Vui lòng kiểm tra file .env (local) hoặc Environment Variables (Vercel Dashboard).\n' +
+    'Yêu cầu các biến: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY'
+  );
 }
 
 // Cấu hình tối ưu cho Supabase client
