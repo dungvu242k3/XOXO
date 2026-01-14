@@ -221,7 +221,8 @@ const WorkflowStagesTasksView: React.FC<{
   workflows: WorkflowDefinition[];
   members: Member[];
   onUpdateTaskAssignment: (taskId: string, assignedTo: string[]) => Promise<void>;
-}> = React.memo(({ item, workflows, members, onUpdateTaskAssignment }) => {
+  isReadOnly?: boolean;
+}> = React.memo(({ item, workflows, members, onUpdateTaskAssignment, isReadOnly = false }) => {
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
   const [taskAssignments, setTaskAssignments] = useState<Record<string, string[]>>({});
   // Staff assignment per workflow stage (supports multi-select)
@@ -397,12 +398,14 @@ const WorkflowStagesTasksView: React.FC<{
                         size={14}
                         className={`text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                       />
-                      <span className="text-xs font-medium text-gold-500">Bước {stage.order}</span>
+                      <span className="text-xs font-medium text-gold-500">
+                        Bước {stage.order}
+                      </span>
                       <span className={`text-xs font-semibold ${isCurrentStage ? 'text-gold-400' : 'text-slate-300'}`}>
                         {stage.name}
                       </span>
                       {isCurrentStage && (
-                        <span className="text-[10px] text-green-500 font-bold ml-2">● ĐANG LÀM</span>
+                        <span className="text-[10px] text-yellow-500 font-bold ml-2">● ĐANG LÀM</span>
                       )}
                     </div>
                   </div>
@@ -500,16 +503,18 @@ const WorkflowStagesTasksView: React.FC<{
                                 )}
                               </div>
                             </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowAssignmentModal({ taskId: task.id, taskTitle: task.title });
-                              }}
-                              className="p-1 hover:bg-neutral-700 rounded text-slate-500 hover:text-slate-300 transition-colors flex-shrink-0"
-                              title="Gán nhân sự"
-                            >
-                              <Users size={12} />
-                            </button>
+                            {!isReadOnly && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowAssignmentModal({ taskId: task.id, taskTitle: task.title });
+                                }}
+                                className="p-1 hover:bg-neutral-700 rounded text-slate-500 hover:text-slate-300 transition-colors flex-shrink-0"
+                                title="Gán nhân sự"
+                              >
+                                <Users size={12} />
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -1845,6 +1850,7 @@ export const Orders: React.FC = () => {
                     <QrCode size={18} /> Danh Sách Dịch Vụ & Sản Phẩm
                   </h3>
                   <div className="space-y-4">
+                    {console.log('🔍 Orders Modal Items:', selectedOrder.items)}
                     {selectedOrder.items.map((item) => {
                       // Find stage name if possible
                       let statusLabel = item.status;
@@ -1894,6 +1900,7 @@ export const Orders: React.FC = () => {
                                     alert('Lỗi khi cập nhật phân công: ' + (error as Error).message);
                                   }
                                 }}
+                                isReadOnly={true}
                               />
                             )}
                             {item.workflowId && !item.serviceId && (

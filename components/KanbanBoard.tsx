@@ -132,9 +132,16 @@ const formatDate = (date: string | Date | undefined | null): string => {
   }
 };
 
+// Helper to check if string is a UUID
+const isUUID = (str: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+};
+
 export const KanbanBoard: React.FC = () => {
-  const { updateOrderItemStatus, updateOrder, members, workflows } = useAppStore();
-  const [orders, setOrders] = useState<Order[]>([]);
+  const { orders, setOrders, updateOrderItemStatus, updateOrder, members, workflows } = useAppStore();
+  // REMOVED local orders state to use global store for optimistic updates
+  // const [orders, setOrders] = useState<Order[]>([]);
   const [services, setServices] = useState<ServiceCatalogItem[]>([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [showOrderSelector, setShowOrderSelector] = useState(false);
@@ -793,15 +800,17 @@ export const KanbanBoard: React.FC = () => {
       ordersCount: orders?.length || 0
     });
 
-    // Helper to check if string is a UUID
-    const isUUID = (str: string): boolean => {
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      return uuidRegex.test(str);
-    };
 
     // Helper to normalize status to UUID of first stage in workflow
+
     const normalizeStatusToStageUUID = (item: any, wfId: string | undefined): string => {
       const currentStatus = item.status || 'cho_xu_ly';
+
+      // CRITICAL: Don't normalize special statuses (done, cancel, etc.)
+      const specialStatuses = ['done', 'cancel', 'delivered', 'hoan_thanh', 'da_giao', 'huy'];
+      if (specialStatuses.includes(currentStatus.toLowerCase())) {
+        return currentStatus; // Keep special status as-is
+      }
 
       // If no workflowId, return original status
       if (!wfId) {
@@ -836,6 +845,8 @@ export const KanbanBoard: React.FC = () => {
           availableWorkflowIds: workflows.map(w => w.id),
           workflowsCount: workflows.length
         });
+        // FORCE RETURN CURRENT STATUS if valid UUID, might be optimistic update with stale workflow state
+        if (isUUID(currentStatus)) return currentStatus;
         return currentStatus;
       }
 
@@ -897,7 +908,9 @@ export const KanbanBoard: React.FC = () => {
 
     const allItems = (orders || []).flatMap(order => {
       if (!order.items || !Array.isArray(order.items)) return [];
-      return order.items
+
+      // 1. Process items first (normalize status, add metadata)
+      const processedItems = order.items
         .filter(item => item && !item.isProduct)
         .map(item => {
           // Determine workflowId from service if not already set
@@ -951,6 +964,9 @@ export const KanbanBoard: React.FC = () => {
             status: normalizedStatus // Use normalized status
           };
         });
+
+      // 2. Return all processed items (Matrix View needs full list)
+      return processedItems;
     });
 
     console.log('📦 Kanban items created:', {
@@ -979,6 +995,58 @@ export const KanbanBoard: React.FC = () => {
   const [draggedItem, setDraggedItem] = useState<KanbanItem | null>(null);
   const [activeWorkflow, setActiveWorkflow] = useState<string>('ALL');
   const [logs, setLogs] = useState<ActivityLog[]>([]);
+
+  // Visible Kanban Items: Apply sequential filtering for Kanban columns ONLY
+  // Matrix View continues to use full 'items' list
+  const visibleKanbanItems = useMemo(() => {
+    if (activeWorkflow === 'ALL') {
+      // Matrix View: return ALL items (no filtering)
+      return items;
+    }
+
+    // Kanban Columns View: apply sequential visibility logic
+    const processedItems = items;
+
+    // Group items by Service ID
+    const serviceIds: string[] = Array.from(new Set(processedItems.map(i => i.serviceId).filter((id): id is string => !!id)));
+
+    // If no services or only 1 service, return all items
+    if (serviceIds.length <= 1) return processedItems;
+
+    // Find the first "Active" or "Incomplete" service
+    let activeServiceId: string | null = null;
+
+    for (const serviceId of serviceIds) {
+      if (!serviceId) continue;
+
+      const serviceItems = processedItems.filter(i => i.serviceId === serviceId);
+
+      // Check if this service is completed
+      const isCompleted = serviceItems.every(i => {
+        const status = i.status.toLowerCase();
+        return ['done', 'cancel', 'delivered', 'hoan_thanh', 'da_giao', 'huy'].includes(status) ||
+          (workflows || []).some(w => w.id === i.workflowId && w.stages?.find(s => s.id === i.status)?.name === 'Done');
+      });
+
+      if (!isCompleted) {
+        activeServiceId = serviceId;
+        break;
+      }
+    }
+
+    // If all services are completed, return all items
+    if (!activeServiceId) return processedItems;
+
+    const activeServiceIndex = serviceIds.indexOf(activeServiceId);
+
+    return processedItems.filter(item => {
+      if (!item.serviceId) return true;
+      const itemServiceIndex = serviceIds.indexOf(item.serviceId);
+      // ONLY SHOW: Completed services AND The current active service.
+      return itemServiceIndex <= activeServiceIndex;
+    });
+  }, [items, activeWorkflow, workflows]);
+
   const [showHistory, setShowHistory] = useState(false);
   const [selectedItem, setSelectedItem] = useState<KanbanItem | null>(null);
   const [editingStage, setEditingStage] = useState<{ stageId: string; stageName: string } | null>(null);
@@ -1022,6 +1090,7 @@ export const KanbanBoard: React.FC = () => {
       });
 
       const orderWorkflowIds = new Set<string>();
+      const workflowOrderMap = new Map<string, number>();
       let itemsWithServiceId = 0;
       let itemsWithWorkflowId = 0;
       let itemsWithoutBoth = 0;
@@ -1051,7 +1120,7 @@ export const KanbanBoard: React.FC = () => {
 
                   if (service.workflows && Array.isArray(service.workflows) && service.workflows.length > 0) {
                     // Add ALL workflows from this service (not just current one)
-                    service.workflows.forEach(wf => {
+                    service.workflows.forEach((wf, index) => {
                       // Try to find workflow by ID or label
                       let workflowExists = (workflows || []).find(w => w && w.id === wf.id);
                       if (!workflowExists) {
@@ -1067,6 +1136,10 @@ export const KanbanBoard: React.FC = () => {
                       }
                       if (workflowExists) {
                         orderWorkflowIds.add(workflowExists.id);
+                        const currentOrder = workflowOrderMap.get(workflowExists.id);
+                        if (currentOrder === undefined || index < currentOrder) {
+                          workflowOrderMap.set(workflowExists.id, index);
+                        }
                         workflowsFromServices++;
                         console.log('✅ Added workflow from service:', {
                           workflowId: workflowExists.id,
@@ -1135,7 +1208,13 @@ export const KanbanBoard: React.FC = () => {
         availableWorkflowIds: workflows.map(w => w.id)
       });
 
-      const workflowsToShow = (workflows || []).filter(wf => wf && wf.id && orderWorkflowIds.has(wf.id));
+      const workflowsToShow = (workflows || [])
+        .filter(wf => wf && wf.id && orderWorkflowIds.has(wf.id))
+        .sort((a, b) => {
+          const orderA = workflowOrderMap.get(a.id) ?? 999;
+          const orderB = workflowOrderMap.get(b.id) ?? 999;
+          return orderA - orderB;
+        });
 
       console.log('✅ Workflows to show as columns:', {
         count: workflowsToShow.length,
@@ -1250,6 +1329,76 @@ export const KanbanBoard: React.FC = () => {
   const handleDrop = async (e: React.DragEvent<HTMLDivElement>, statusId: string) => {
     e.preventDefault();
     if (!draggedItem) return;
+
+    // ----- SEQUENTIAL SERVICE PROCESSING CHECK -----
+    if (draggedItem.serviceId && draggedItem.orderId) {
+      // Use global items (already processed with current status) instead of order.items
+      const orderItems = items.filter(i => i.orderId === draggedItem.orderId);
+
+      if (orderItems.length > 0) {
+        // Group items by Service ID
+        const itemsByService = new Map<string, KanbanItem[]>();
+        const serviceIds: string[] = [];
+
+        orderItems.forEach(item => {
+          const sID = item.serviceId;
+          if (sID) {
+            if (!itemsByService.has(sID)) {
+              itemsByService.set(sID, []);
+              serviceIds.push(sID);
+            }
+            itemsByService.get(sID)?.push(item);
+          }
+        });
+
+        console.log('🔍 Sequential check:', {
+          draggedService: draggedItem.serviceId,
+          allServices: serviceIds,
+          totalItems: orderItems.length
+        });
+
+        // Current item's service index
+        const currentServiceIndex = serviceIds.indexOf(draggedItem.serviceId);
+
+        if (currentServiceIndex > 0) {
+          // Check all previous services must be completed
+          for (let i = 0; i < currentServiceIndex; i++) {
+            const prevServiceId = serviceIds[i];
+            const prevItems = itemsByService.get(prevServiceId) || [];
+
+            // Check if ALL items in previous service are done
+            const isPrevCompleted = prevItems.every(item => {
+              const status = (item.status || '').toLowerCase();
+              const isDone = ['done', 'cancel', 'delivered', 'hoan_thanh', 'da_giao', 'huy'].includes(status) ||
+                (workflows || []).some(w => w.id === item.workflowId && w.stages?.find(s => s.id === item.status)?.name === 'Done');
+
+              console.log('  - Item check:', {
+                itemName: item.name,
+                status: item.status,
+                isDone
+              });
+
+              return isDone;
+            });
+
+            console.log('📊 Previous service check:', {
+              serviceId: prevServiceId,
+              itemsCount: prevItems.length,
+              isCompleted: isPrevCompleted
+            });
+
+            if (!isPrevCompleted) {
+              const prevService = (services || []).find(s => s.id === prevServiceId);
+              const prevServiceName = prevService?.name || 'Dịch vụ trước';
+              alert(`⚠️ CHẶN: Vui lòng hoàn thành dịch vụ "${prevServiceName}" trước khi làm dịch vụ này!`);
+              setDraggedItem(null);
+              return; // BLOCK DROP
+            }
+          }
+        }
+      }
+    }
+    // ---------------------------------------
 
     if (draggedItem.status === statusId) {
       setDraggedItem(null);
@@ -1380,84 +1529,18 @@ export const KanbanBoard: React.FC = () => {
     }
 
     if (statusId === 'cancel') {
-      console.log('🚫 Cancel column detected, checking for previous workflow...');
-      let movedToPreviousWorkflow = false;
-
-      // Check for Previous Workflow
-      console.log('📋 Item info for cancel:', {
-        serviceId: draggedItem.serviceId,
-        workflowId: draggedItem.workflowId,
-        itemName: draggedItem.name
+      console.log('🚫 Cancel column detected, prompting for confirmation...');
+      setModalConfig({
+        isOpen: true,
+        type: 'CANCEL',
+        item: draggedItem,
+        targetStatus: statusId
       });
-
-      if (draggedItem.serviceId && draggedItem.workflowId) {
-        const service = (services || []).find(s => s && s.id === draggedItem.serviceId);
-        console.log('🔍 Found service:', service ? {
-          id: service.id,
-          name: service.name,
-          workflows: service.workflows
-        } : 'NOT FOUND');
-
-        if (service && service.workflows && service.workflows.length > 0) {
-          const currentWfIndex = service.workflows.findIndex(wf => wf.id === draggedItem.workflowId);
-          console.log('📊 Current workflow index:', {
-            currentWfIndex,
-            totalWorkflows: service.workflows.length
-          });
-
-          // Check if there's a previous workflow (index > 0)
-          if (currentWfIndex > 0) {
-            const prevWfConfig = service.workflows[currentWfIndex - 1];
-            const prevWf = (workflows || []).find(w => w && w.id === prevWfConfig.id);
-            console.log('⬅️ Previous workflow:', prevWf ? {
-              id: prevWf.id,
-              label: prevWf.label,
-              stagesCount: prevWf.stages?.length || 0
-            } : 'NOT FOUND');
-
-            if (prevWf && prevWf.stages && prevWf.stages.length > 0) {
-              // Find LAST stage of previous workflow
-              const sortedStages = [...prevWf.stages].sort((a, b) => a.order - b.order);
-              const lastStage = sortedStages[sortedStages.length - 1];
-              console.log('🎬 Last stage of previous workflow:', lastStage);
-
-              // Show modal to get reason
-              setModalConfig({
-                isOpen: true,
-                type: 'CANCEL',
-                item: draggedItem,
-                targetStatus: 'previous_workflow',
-                previousWorkflow: { workflow: prevWf, stage: lastStage }
-              });
-              setDraggedItem(null);
-              return;
-            } else {
-              alert('Quy trình trước chưa được cấu hình các bước!');
-            }
-          } else {
-            console.log('ℹ️ No previous workflow (first workflow)');
-            alert('Đây là quy trình đầu tiên, không thể quay lại quy trình trước!');
-          }
-        } else {
-          console.log('⚠️ Service has no workflows configured');
-        }
-      } else {
-        console.log('⚠️ Item missing serviceId or workflowId');
-      }
-
-      // If no previous workflow, just show cancel modal
-      if (!movedToPreviousWorkflow) {
-        setModalConfig({
-          isOpen: true,
-          type: 'CANCEL',
-          item: draggedItem,
-          targetStatus: statusId
-        });
-      }
-
       setDraggedItem(null);
       return;
     }
+
+
 
     // Normal column logic
     const currentStageId = mapStatusToStageId(draggedItem.status);
@@ -1476,34 +1559,8 @@ export const KanbanBoard: React.FC = () => {
     // If oldIndex is -1, the item's current status doesn't match any column
     // This can happen with legacy data or items from different workflows
     // In this case, allow the move (treat as forward move)
-
-    // Helper for optimistic update
-    const optimisticUpdate = (orderId: string, itemId: string, targetStatus: string) => {
-      setOrders(prevOrders => prevOrders.map(order => {
-        if (order.id !== orderId) return order;
-        return {
-          ...order,
-          items: order.items.map(item => {
-            if (item.id !== itemId) return item;
-            return {
-              ...item,
-              status: targetStatus,
-              history: [...(item.history || []), {
-                stageId: targetStatus,
-                stageName: targetStatus, // Temporary, will be refetched
-                enteredAt: Date.now(),
-                performedBy: CURRENT_USER.name
-              }],
-              lastUpdated: Date.now()
-            };
-          })
-        };
-      }));
-    };
-
     if (oldIndex === -1) {
       console.log('⚠️ Current status not found in columns, allowing move');
-      optimisticUpdate(draggedItem.orderId, draggedItem.id, statusId);
       updateOrderItemStatus(draggedItem.orderId, draggedItem.id, statusId, CURRENT_USER.name);
       addVisualLog('Cập nhật tiến độ', draggedItem.name, `Chuyển sang [${newStatusTitle}]`, 'info');
     } else if (newIndex < oldIndex) {
@@ -1516,7 +1573,6 @@ export const KanbanBoard: React.FC = () => {
       });
     } else {
       console.log('➡️ Forward move, calling updateOrderItemStatus');
-      optimisticUpdate(draggedItem.orderId, draggedItem.id, statusId);
       updateOrderItemStatus(draggedItem.orderId, draggedItem.id, statusId, CURRENT_USER.name);
       addVisualLog('Cập nhật tiến độ', draggedItem.name, `Chuyển từ [${oldStatusTitle}] sang [${newStatusTitle}]`, 'info');
     }
@@ -1536,7 +1592,8 @@ export const KanbanBoard: React.FC = () => {
   const confirmAction = () => {
     if (!modalConfig.item) return;
 
-    if (!reasonInput.trim()) {
+    // Only require reason for backward moves, optional for Restart (CANCEL)
+    if (modalConfig.type !== 'CANCEL' && !reasonInput.trim()) {
       alert("Vui lòng nhập nội dung ghi chú!");
       return;
     }
@@ -1544,90 +1601,25 @@ export const KanbanBoard: React.FC = () => {
     const oldStatusTitle = columns.find(c => c.id === modalConfig.item?.status)?.title;
 
     if (modalConfig.type === 'CANCEL') {
-      // Check if we need to move to previous workflow
-      if (modalConfig.previousWorkflow) {
-        const { workflow: prevWf, stage: lastStage } = modalConfig.previousWorkflow;
-        const order = orders.find(o => o.id === modalConfig.item.orderId);
+      // Logic for "Re-do current workflow" (Làm lại từ đầu phần đó)
+      const currentWf = (workflows || []).find(w => w && w.id === modalConfig.item?.workflowId);
 
-        if (order) {
-          const now = Date.now();
-          const updatedItems = order.items.map(item => {
-            if (item.id === modalConfig.item.id) {
-              // Close history
-              const newHistory = [...(item.history || [])];
-              if (newHistory.length > 0) {
-                const lastEntry = newHistory[newHistory.length - 1];
-                if (!lastEntry.leftAt) {
-                  newHistory[newHistory.length - 1] = {
-                    ...lastEntry,
-                    leftAt: now,
-                    duration: now - lastEntry.enteredAt
-                  };
-                }
-              }
-              // Open new history
-              newHistory.push({
-                stageId: lastStage.id,
-                stageName: lastStage.name,
-                enteredAt: now,
-                performedBy: CURRENT_USER.name
-              });
+      if (currentWf && currentWf.stages && currentWf.stages.length > 0) {
+        // Sort stages to find the first one
+        const sortedStages = [...currentWf.stages].sort((a, b) => (a.order || 0) - (b.order || 0));
+        const firstStage = sortedStages[0];
 
-              return {
-                ...item,
-                workflowId: prevWf.id,
-                status: lastStage.id,
-                history: newHistory,
-                lastUpdated: now
-              };
-            }
-            return item;
-          });
-
-          const cleanedOrder = removeUndefined({ ...order, items: updatedItems });
-          updateOrder(order.id, cleanedOrder);
-          addVisualLog('Trả lại quy trình', modalConfig.item.name, `Từ [${oldStatusTitle}] về quy trình: ${prevWf.label} (${lastStage.name}). Lý do: ${reasonInput}`, 'warning');
-        }
+        // Reset item status to the first stage of the current workflow
+        updateOrderItemStatus(modalConfig.item.orderId, modalConfig.item.id, firstStage.id, CURRENT_USER.name, reasonInput);
+        addVisualLog('Làm lại quy trình', modalConfig.item.name, `Đã làm lại từ đầu quy trình [${currentWf.label}]. Lý do: ${reasonInput}`, 'warning');
       } else {
-        // Just mark as cancelled
-        // Optimistic update for cancel
-        setOrders(prevOrders => prevOrders.map(order => {
-          if (order.id !== modalConfig.item?.orderId) return order;
-          return {
-            ...order,
-            items: order.items.map(item => {
-              if (item.id !== modalConfig.item?.id) return item;
-              return {
-                ...item,
-                status: 'cancel',
-                lastUpdated: Date.now()
-              };
-            })
-          };
-        }));
-
+        // Fallback if no workflow/stages found (should be rare)
         updateOrderItemStatus(modalConfig.item.orderId, modalConfig.item.id, 'cancel', CURRENT_USER.name, reasonInput);
         addVisualLog('Hủy', modalConfig.item.name, `Từ [${oldStatusTitle}]. Lý do: ${reasonInput}`, 'danger');
       }
     }
     else if (modalConfig.type === 'BACKWARD' && modalConfig.targetStatus) {
       const newStatusTitle = columns.find(c => c.id === modalConfig.targetStatus)?.title;
-      // Optimistic update for backward move
-      setOrders(prevOrders => prevOrders.map(order => {
-        if (order.id !== modalConfig.item?.orderId) return order;
-        return {
-          ...order,
-          items: order.items.map(item => {
-            if (item.id !== modalConfig.item?.id) return item;
-            return {
-              ...item,
-              status: modalConfig.targetStatus!,
-              lastUpdated: Date.now()
-            };
-          })
-        };
-      }));
-
       updateOrderItemStatus(modalConfig.item.orderId, modalConfig.item.id, modalConfig.targetStatus, CURRENT_USER.name, reasonInput);
       addVisualLog('Trả lại quy trình', modalConfig.item.name, `Từ [${oldStatusTitle}] về [${newStatusTitle}]. Ghi chú: ${reasonInput}`, 'warning');
     }
@@ -1674,14 +1666,53 @@ export const KanbanBoard: React.FC = () => {
     }
 
     // Filter by workflowId - items must belong to the selected workflow
-    const filtered = result.filter(item => item.workflowId === activeWorkflow);
-    console.log('📋 After workflow filter:', {
-      activeWorkflow,
-      filteredCount: filtered.length,
-      filteredItems: filtered.map(i => ({ id: i.id, name: i.name, workflowId: i.workflowId }))
-    });
-    return filtered;
-  }, [items, activeWorkflow, Array.from(selectedOrderIds).join(',')]);
+    const filteredByWorkflow = result.filter(item => item.workflowId === activeWorkflow);
+
+    // Apply Sequential Visibility: Hide completed services, only show active + pending
+    const serviceIds: string[] = Array.from(new Set(
+      filteredByWorkflow.map(i => i.serviceId).filter((id): id is string => !!id)
+    ));
+
+    if (serviceIds.length > 1) {
+      // Find first incomplete service
+      let firstIncompleteIndex = -1;
+
+      for (let i = 0; i < serviceIds.length; i++) {
+        const serviceId = serviceIds[i];
+        const serviceItems = filteredByWorkflow.filter(item => item.serviceId === serviceId);
+
+        const isCompleted = serviceItems.every(item => {
+          const status = item.status.toLowerCase();
+          return ['done', 'cancel', 'delivered', 'hoan_thanh', 'da_giao', 'huy'].includes(status) ||
+            (workflows || []).some(w => w.id === item.workflowId && w.stages?.find(s => s.id === item.status)?.name === 'Done');
+        });
+
+        if (!isCompleted) {
+          firstIncompleteIndex = i;
+          break;
+        }
+      }
+
+      // Only show the first incomplete service (hide completed ones)
+      if (firstIncompleteIndex !== -1) {
+        const visibleItems = filteredByWorkflow.filter(item => {
+          if (!item.serviceId) return true;
+          const idx = serviceIds.indexOf(item.serviceId);
+          return idx === firstIncompleteIndex; // Only show current active service
+        });
+
+        console.log('📋 Sequential filter applied:', {
+          totalServices: serviceIds.length,
+          activeServiceIndex: firstIncompleteIndex,
+          visibleCount: visibleItems.length
+        });
+
+        return visibleItems;
+      }
+    }
+
+    return filteredByWorkflow;
+  }, [items, activeWorkflow, workflows, Array.from(selectedOrderIds).join(',')]);
 
   const getWorkflowCount = (workflowId: string, types: ServiceType[]) => {
     let filtered = items;
@@ -1730,6 +1761,12 @@ export const KanbanBoard: React.FC = () => {
 
     // Exact match
     if (item.status === colId) return true;
+
+    // DEBUG: Trace why optimistic update might fail match
+    // Only log if active workflow matches item workflow but status check fails
+    if (activeWorkflow !== 'ALL' && item.workflowId === activeWorkflow && isUUID(item.status) && isUUID(colId)) {
+      // console.log('DEBUG CHECK STATUS:', { itemStatus: item.status, colId, match: item.status === colId });
+    }
 
     // Case-insensitive match
     const itemStatusLower = (item.status || '').toLowerCase().trim();
@@ -1954,9 +1991,14 @@ export const KanbanBoard: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-1 overflow-x-auto pb-1 px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                     {allStages.map((stage, idx) => {
-                      const isCompleted = item.history?.some(h => h.stageId === stage.id) || false;
-                      const isCurrent = stage.id === item.status;
+                      // Logic Fix: Use index comparison for status
+                      const currentStageIndex = allStages.findIndex(s => s.id === item.status);
+                      const isItemDone = ['done', 'cancel', 'delivered', 'hoan_thanh', 'da_giao', 'huy'].includes(item.status.toLowerCase());
+
+                      const isCompleted = isItemDone || (currentStageIndex !== -1 && idx < currentStageIndex);
+                      const isCurrent = !isItemDone && (stage.id === item.status);
                       const isUpcoming = !isCompleted && !isCurrent;
+
                       // Determine assigned members for this stage (Per-Order > Template)
                       let stageMembers = stage.assignedMembers || [];
                       if ((item as any).stageAssignments && Array.isArray((item as any).stageAssignments)) {
@@ -1975,7 +2017,8 @@ export const KanbanBoard: React.FC = () => {
                               : 'bg-neutral-800/40 text-slate-500 border border-neutral-700/30'
                             }`}>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[9px] text-slate-400 font-bold">#{stage.order || idx + 1}</span>
+                              {/* Always use idx + 1 for sequential numbering */}
+                              <span className="text-[9px] text-slate-400 font-bold">#{idx + 1}</span>
                               <span className="line-clamp-1 max-w-[90px]">{stage.name}</span>
                             </div>
                             {stageMembers.length > 0 && (
@@ -2314,12 +2357,12 @@ export const KanbanBoard: React.FC = () => {
             <div className="absolute inset-0 overflow-auto bg-neutral-900/50">
               <div className="min-w-full w-max pb-10">
                 {/* Header Row - Restored for Right Column Alignment */}
-                <div className="flex border-b border-neutral-800 sticky top-0 bg-neutral-900 z-20 min-w-full text-left">
+                <div className="flex border-b border-neutral-800 sticky top-0 bg-neutral-900 z-40 min-w-full text-left">
                   <div className="flex-1 p-4 flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
                     <h3 className="font-semibold text-slate-300 text-sm uppercase tracking-wide">TIẾN ĐỘ THỰC HIỆN</h3>
                   </div>
-                  <div className="w-[200px] flex-shrink-0 p-3 font-bold text-gold-500 text-center bg-neutral-800 border-l border-neutral-700 sticky right-0 shadow-[-5px_0_15px_-5px_rgba(0,0,0,0.5)] z-30 ml-auto flex flex-col justify-center">
+                  <div className="w-[200px] flex-shrink-0 p-3 font-bold text-gold-500 text-center bg-neutral-800 border-l border-neutral-700 sticky right-0 shadow-[-5px_0_15px_-5px_rgba(0,0,0,0.5)] z-50 ml-auto flex flex-col justify-center">
                     THÔNG TIN
                   </div>
                 </div>
@@ -2380,8 +2423,21 @@ export const KanbanBoard: React.FC = () => {
                             const currentStageIndex = wfStages.findIndex(s => s.id === item.status) || 0;
                             const currentStage = wfStages.find(s => s.id === item.status);
 
+                            // Determine if item is DONE
+                            const isItemDone = ['done', 'cancel', 'delivered', 'hoan_thanh', 'da_giao', 'huy'].includes(item.status.toLowerCase()) ||
+                              currentStage?.name === 'Done';
+
                             return (
-                              <div key={`${item.id}-${idx}`} className="flex-shrink-0 w-[340px] bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex flex-col shadow-sm relative hover:border-neutral-700 transition-colors">
+                              <div
+                                key={`${item.id}-${idx}`}
+                                className={`flex-shrink-0 w-[340px] bg-neutral-900 border rounded-xl p-4 flex flex-col shadow-sm relative hover:border-neutral-700 transition-colors ${isItemDone ? 'border-emerald-500/50 ring-1 ring-emerald-500/20' : 'border-neutral-800'
+                                  }`}
+                              >
+                                {isItemDone && (
+                                  <div className="absolute top-3 right-3 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg z-20 flex items-center gap-1">
+                                    ✅ DONE
+                                  </div>
+                                )}
                                 {/* Card Header: Image + Basic Info */}
                                 <div className="flex gap-3 mb-4">
                                   <div className="w-16 h-16 bg-neutral-800 rounded-lg flex-shrink-0 flex items-center justify-center overflow-hidden border border-neutral-700/50">
@@ -2533,7 +2589,7 @@ export const KanbanBoard: React.FC = () => {
                         </div>
 
                         {/* RIGHT PART: Sticky Order Info - RESTORED ORIGINAL STYLE */}
-                        <div className="w-[200px] flex-shrink-0 p-3 bg-neutral-900/95 border-l border-neutral-800 flex flex-col justify-center sticky right-0 z-10 shadow-[-5px_0_15px_-5px_rgba(0,0,0,0.5)] ml-auto">
+                        <div className="w-[200px] flex-shrink-0 p-3 bg-neutral-900/95 border-l border-neutral-800 flex flex-col justify-center sticky right-0 z-30 shadow-[-5px_0_15px_-5px_rgba(0,0,0,0.5)] ml-auto">
                           <div className="text-xs font-mono text-slate-500 mb-1">#{order.id}</div>
                           <p className="text-slate-300 font-medium text-lg mb-2">{order.customerName}</p>
 
@@ -2650,7 +2706,7 @@ export const KanbanBoard: React.FC = () => {
                 <div>
                   <h3 className={`font-bold text-lg ${modalConfig.type === 'CANCEL' ? 'text-red-500' : 'text-orange-500'
                     } animate-pulse`}>
-                    {modalConfig.type === 'CANCEL' ? 'Xác nhận Hủy Công Việc' : 'Cảnh báo: Lùi Quy Trình'}
+                    {modalConfig.type === 'CANCEL' ? 'Xác nhận Làm Lại Quy Trình' : 'Cảnh báo: Lùi Quy Trình'}
                   </h3>
                 </div>
               </div>
@@ -2658,15 +2714,15 @@ export const KanbanBoard: React.FC = () => {
               <div className="p-6">
                 <p className="text-slate-400 mb-4 text-sm">
                   {modalConfig.type === 'CANCEL'
-                    ? `Bạn có chắc chắn muốn hủy công việc "${modalConfig.item?.name}" không? Hành động này không thể hoàn tác.`
+                    ? `Bạn có chắc chắn muốn làm lại từ đầu quy trình cho "${modalConfig.item?.name}" không? Tiến độ hiện tại sẽ bị đặt lại.`
                     : `Bạn đang chuyển công việc "${modalConfig.item?.name}" về bước trước đó. Vui lòng ghi rõ lý do (VD: QC không đạt, làm lại...).`
                   }
                 </p>
 
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-slate-300 mb-1">
-                    {modalConfig.type === 'CANCEL' ? 'Lý do hủy' : 'Ghi chú / Lý do trả lại'}
-                    <span className={modalConfig.type === 'CANCEL' ? "text-red-500" : "text-orange-500"}> *</span>
+                    {modalConfig.type === 'CANCEL' ? 'Lý do làm lại (Tùy chọn)' : 'Ghi chú / Lý do trả lại'}
+                    {modalConfig.type !== 'CANCEL' && <span className="text-orange-500"> *</span>}
                   </label>
                   <textarea
                     className={`w-full p-3 border rounded-lg focus:ring-1 outline-none text-sm bg-neutral-950 text-slate-200 ${modalConfig.type === 'CANCEL'
@@ -2676,7 +2732,7 @@ export const KanbanBoard: React.FC = () => {
                     rows={3}
                     placeholder={
                       modalConfig.type === 'CANCEL'
-                        ? "Nhập lý do hủy đơn..."
+                        ? "Nhập lý do (không bắt buộc)..."
                         : "Nhập lý do chuyển lại bước trước (VD: Đường chỉ lỗi, màu chưa chuẩn...)"
                     }
                     value={reasonInput}

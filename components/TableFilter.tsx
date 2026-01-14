@@ -1,15 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Calendar, ChevronDown, Check, X, Clock, Filter } from 'lucide-react';
+import { Calendar, Check, ChevronDown, Clock, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 
 // Enum cho các bộ lọc nhanh
-export type QuickFilterType = 
+export type QuickFilterType =
   | 'all'
-  | 'today' 
-  | 'yesterday' 
-  | 'this_week' 
-  | 'last_week' 
-  | 'this_month' 
-  | 'last_month' 
+  | 'today'
+  | 'yesterday'
+  | 'this_week'
+  | 'last_week'
+  | 'this_month'
+  | 'last_month'
   | 'this_quarter'
   | 'this_year';
 
@@ -44,14 +44,14 @@ const QUICK_FILTER_OPTIONS: { value: QuickFilterType; label: string }[] = [
 export const getDateRangeFromQuickFilter = (filter: QuickFilterType): DateRange => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
   switch (filter) {
     case 'today':
       return { tuNgay: today, denNgay: endOfDay };
-    
+
     case 'yesterday': {
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
@@ -59,7 +59,7 @@ export const getDateRangeFromQuickFilter = (filter: QuickFilterType): DateRange 
       endYesterday.setHours(23, 59, 59, 999);
       return { tuNgay: yesterday, denNgay: endYesterday };
     }
-    
+
     case 'this_week': {
       const startOfWeek = new Date(today);
       const day = startOfWeek.getDay();
@@ -67,7 +67,7 @@ export const getDateRangeFromQuickFilter = (filter: QuickFilterType): DateRange 
       startOfWeek.setDate(diff);
       return { tuNgay: startOfWeek, denNgay: endOfDay };
     }
-    
+
     case 'last_week': {
       const startOfLastWeek = new Date(today);
       const day = startOfLastWeek.getDay();
@@ -78,30 +78,30 @@ export const getDateRangeFromQuickFilter = (filter: QuickFilterType): DateRange 
       endOfLastWeek.setHours(23, 59, 59, 999);
       return { tuNgay: startOfLastWeek, denNgay: endOfLastWeek };
     }
-    
+
     case 'this_month': {
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       return { tuNgay: startOfMonth, denNgay: endOfDay };
     }
-    
+
     case 'last_month': {
       const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
       endOfLastMonth.setHours(23, 59, 59, 999);
       return { tuNgay: startOfLastMonth, denNgay: endOfLastMonth };
     }
-    
+
     case 'this_quarter': {
       const quarter = Math.floor(today.getMonth() / 3);
       const startOfQuarter = new Date(today.getFullYear(), quarter * 3, 1);
       return { tuNgay: startOfQuarter, denNgay: endOfDay };
     }
-    
+
     case 'this_year': {
       const startOfYear = new Date(today.getFullYear(), 0, 1);
       return { tuNgay: startOfYear, denNgay: endOfDay };
     }
-    
+
     default:
       return { tuNgay: null, denNgay: null };
   }
@@ -126,7 +126,7 @@ export const TableFilter: React.FC<TableFilterProps> = ({ onFilterChange, classN
   const [selectedQuickFilter, setSelectedQuickFilter] = useState<QuickFilterType>('all');
   const [customDateRange, setCustomDateRange] = useState<DateRange>({ tuNgay: null, denNgay: null });
   const [tempDateRange, setTempDateRange] = useState<DateRange>({ tuNgay: null, denNgay: null });
-  
+
   const dropdownRef = useRef<HTMLDivElement>(null);
   const datePickerRef = useRef<HTMLDivElement>(null);
 
@@ -157,11 +157,11 @@ export const TableFilter: React.FC<TableFilterProps> = ({ onFilterChange, classN
   const handleQuickFilterSelect = (filter: QuickFilterType) => {
     setSelectedQuickFilter(filter);
     setIsDropdownOpen(false);
-    
+
     if (filter !== 'all') {
       setCustomDateRange({ tuNgay: null, denNgay: null });
     }
-    
+
     triggerFilterChange(filter, customDateRange);
   };
 
@@ -199,11 +199,10 @@ export const TableFilter: React.FC<TableFilterProps> = ({ onFilterChange, classN
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 ${
-            hasActiveFilter 
-              ? 'bg-gold-600/20 border-gold-600/50 text-gold-400' 
-              : 'bg-neutral-800 border-neutral-700 text-slate-300 hover:bg-neutral-700'
-          }`}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 ${hasActiveFilter
+            ? 'bg-gold-600/20 border-gold-600/50 text-gold-400'
+            : 'bg-neutral-800 border-neutral-700 text-slate-300 hover:bg-neutral-700'
+            }`}
         >
           <Clock size={16} />
           <span className="text-sm font-medium">{getFilterDisplayLabel()}</span>
@@ -219,11 +218,10 @@ export const TableFilter: React.FC<TableFilterProps> = ({ onFilterChange, classN
                 <button
                   key={option.value}
                   onClick={() => handleQuickFilterSelect(option.value)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-all duration-150 ${
-                    selectedQuickFilter === option.value && !customDateRange.tuNgay
-                      ? 'bg-gold-600/20 text-gold-400'
-                      : 'text-slate-300 hover:bg-neutral-800'
-                  }`}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-all duration-150 ${selectedQuickFilter === option.value && !customDateRange.tuNgay
+                    ? 'bg-gold-600/20 text-gold-400'
+                    : 'text-slate-300 hover:bg-neutral-800'
+                    }`}
                 >
                   <span>{option.label}</span>
                   {selectedQuickFilter === option.value && !customDateRange.tuNgay && (
@@ -243,11 +241,10 @@ export const TableFilter: React.FC<TableFilterProps> = ({ onFilterChange, classN
             setTempDateRange(customDateRange);
             setIsDatePickerOpen(!isDatePickerOpen);
           }}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 ${
-            customDateRange.tuNgay || customDateRange.denNgay
-              ? 'bg-gold-600/20 border-gold-600/50 text-gold-400'
-              : 'bg-neutral-800 border-neutral-700 text-slate-300 hover:bg-neutral-700'
-          }`}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 ${customDateRange.tuNgay || customDateRange.denNgay
+            ? 'bg-gold-600/20 border-gold-600/50 text-gold-400'
+            : 'bg-neutral-800 border-neutral-700 text-slate-300 hover:bg-neutral-700'
+            }`}
         >
           <Calendar size={16} />
           <span className="text-sm font-medium">Chọn ngày</span>
@@ -261,7 +258,7 @@ export const TableFilter: React.FC<TableFilterProps> = ({ onFilterChange, classN
                 <Calendar size={16} />
                 Thời gian tùy chỉnh
               </div>
-              
+
               <div className="space-y-4">
                 {/* Từ ngày */}
                 <div>
@@ -357,13 +354,13 @@ export const TableFilter: React.FC<TableFilterProps> = ({ onFilterChange, classN
 };
 
 // Helper function để lọc data theo ngày
-export const filterByDateRange = <T extends Record<string, any>>(
+export const filterByDateRange = <T,>(
   data: T[],
   filter: FilterState,
   dateField: keyof T
 ): T[] => {
   const { locNhanh, thoiGian } = filter;
-  
+
   // Nếu là "all" và không có custom date range
   if (locNhanh === 'all' && !thoiGian.tuNgay && !thoiGian.denNgay) {
     return data;
@@ -396,10 +393,10 @@ export const filterByDateRange = <T extends Record<string, any>>(
     if (isNaN(itemDate.getTime())) return true;
 
     const { tuNgay, denNgay } = dateRange;
-    
+
     if (tuNgay && itemDate < tuNgay) return false;
     if (denNgay && itemDate > denNgay) return false;
-    
+
     return true;
   });
 };

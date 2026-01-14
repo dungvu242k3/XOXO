@@ -19,6 +19,7 @@ interface AppContextType {
   members: Member[];
   products: Product[];
   customers: Customer[];
+  setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
   addOrder: (newOrder: Order) => void;
   updateOrder: (orderId: string, updatedOrder: Order) => Promise<void>;
   deleteOrder: (orderId: string) => Promise<void>;
@@ -472,7 +473,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.log('📡 Querying orders from:', DB_TABLES.ORDERS);
       const ordersResult = await supabase
         .from(DB_TABLES.ORDERS)
-        .select('id, id_khach_hang, ten_khach_hang, tong_tien, tien_coc, trang_thai, ngay_du_kien_giao, ghi_chu')
+        .select('id, id_khach_hang, ten_khach_hang, tong_tien, tien_coc, trang_thai, ngay_du_kien_giao, ghi_chu, ngay_tao')
+        .order('ngay_tao', { ascending: false })
         .limit(100);
 
       if (ordersResult.error) {
@@ -913,11 +915,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         ghi_chu: newOrder.notes || ''
       };
 
-      // Insert order và lấy ID ngay (cần ID để link items)
+      // Insert order và lấy FULL data ngay
       const { data: savedOrder, error: orderError } = await supabase
         .from(DB_TABLES.ORDERS)
         .insert(orderData)
-        .select('id')
+        .select('*')
         .single();
 
       if (orderError) throw orderError;
@@ -972,9 +974,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }))
       });
 
+      let insertedItems: any[] = [];
       if (itemsToInsert.length > 0) {
         // Batch insert tất cả items cùng lúc
-        const { data: insertedItems, error: itemsError } = await supabase
+        const { data, error: itemsError } = await supabase
           .from(DB_TABLES.SERVICE_ITEMS)
           .insert(itemsToInsert)
           .select();
@@ -984,13 +987,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           throw itemsError;
         }
 
+        insertedItems = data || [];
+
         console.log('✅ Items saved successfully:', {
-          insertedCount: insertedItems?.length || 0,
+          insertedCount: insertedItems.length,
           insertedItems: insertedItems
         });
       } else {
         console.warn('⚠️ No items to insert');
       }
+
+      // --- OPTIMIZED FIX: Use returned data for immediate local update ---
+      try {
+        if (savedOrder) {
+          const finalItems = itemsToInsert.length > 0 ? (insertedItems || []) : [];
+
+          const formattedOrder = mapVietnameseOrderToEnglish({
+            ...savedOrder,
+            danh_sach_dich_vu: finalItems
+          });
+
+          console.log('🚀 Local update: Adding new order to state immediately (Optimized)', formattedOrder);
+          setOrders(prev => [formattedOrder, ...prev]);
+        }
+      } catch (e) {
+        console.error('Error updating local state for new order:', e);
+      }
+      // ------------------------------------------------------------------
 
       // Tính toán trừ kho dựa trên workflowId của item (batch update)
       const currentInventory = [...inventory];
@@ -1048,7 +1071,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // --- 2.5. Cập nhật Đơn Hàng ---
   const updateOrder = async (orderId: string, updatedOrder: Order) => {
     try {
+      // 🚀 OPTIMISTIC UPDATE: Update local state immediately
+      setOrders(prevOrders => prevOrders.map(o => o.id === orderId ? updatedOrder : o));
+
       // Update order
+
       const orderData: any = {
         id_khach_hang: updatedOrder.customerId,
         ten_khach_hang: updatedOrder.customerName,
@@ -1196,6 +1223,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         .eq('id', orderId);
 
       if (error) throw error;
+
+      console.log('🗑️ Local update: Removing order from state immediately', orderId);
+      setOrders(prev => prev.filter(o => o.id !== orderId));
     } catch (error) {
       console.error('Error deleting order:', error);
       throw error;
@@ -1253,21 +1283,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // --- 3. Cập nhật Trạng thái Quy trình ---
   const updateOrderItemStatus = async (orderId: string, itemId: string, newStatus: string, user: string, note?: string) => {
     try {
-      // Lấy item hiện tại từ Supabase
-      const { data: itemData, error: fetchError } = await supabase
-        .from(DB_TABLES.SERVICE_ITEMS)
-        .select('*')
-        .eq('id', itemId)
-        .eq('id_don_hang', orderId)
-        .single();
+      // 1. Get current item from LOCAL STATE to calculate new history immediately (True Optimistic)
+      const currentOrder = orders.find(o => o.id === orderId);
+      const currentItem = currentOrder?.items.find(i => i.id === itemId);
 
-      if (fetchError || !itemData) {
-        console.error('Item not found:', fetchError);
+      if (!currentOrder || !currentItem) {
+        console.error('Item not found in local orders state:', { orderId, itemId });
+        // Fallback or return? If not in local state, UI can't be updated anyway.
         return;
       }
 
       const now = Date.now();
-      const currentHistory = (itemData.lich_su_thuc_hien || []) as any[];
+      const currentHistory = (currentItem.history || []) as any[];
       let newHistory = [...currentHistory];
 
       // Đóng stage cũ
@@ -1284,8 +1311,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       // Mở stage mới
-      // newStatus là UUID của stage, cần lấy stage name từ workflows
-      // Tạm thời lưu UUID, stage name sẽ được map từ workflows khi load
       newHistory.push({
         stageId: newStatus,
         stageName: newStatus, // Sẽ được map từ workflows khi load lại
@@ -1294,16 +1319,40 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
 
       // Xử lý Log (Ghi chú)
-      let newLog = (itemData.nhat_ky_ky_thuat || []) as any[];
+      let newLog = (currentItem.technicalLog || []) as any[];
       if (note) {
-        newLog.push({
+        newLog = [...newLog, { // Create new array to be safe
           id: Date.now().toString(),
           content: note,
           author: user,
           timestamp: new Date().toLocaleString('vi-VN'),
           stage: newStatus
-        });
+        }];
       }
+
+      // 🚀 OPTIMISTIC UPDATE: Update local state immediately
+      setOrders(prevOrders => {
+        return prevOrders.map(order => {
+          if (order.id === orderId) {
+            return {
+              ...order,
+              items: order.items.map(item => {
+                if (item.id === itemId) {
+                  return {
+                    ...item,
+                    status: newStatus,
+                    history: newHistory as any,
+                    technicalLog: newLog as any,
+                    lastUpdated: now
+                  };
+                }
+                return item;
+              })
+            };
+          }
+          return order;
+        });
+      });
 
       // Cập nhật lên Supabase
       console.log('📤 Updating order item status in database:', {
@@ -1326,6 +1375,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         .eq('id_don_hang', orderId);
 
       if (updateError) {
+        // Rollback state if error (optional, simplified for now)
         console.error('❌ Error updating order item status:', {
           error: updateError,
           code: updateError.code,
@@ -1342,30 +1392,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         newStatus,
         historyEntries: newHistory.length,
         logEntries: newLog.length
-      });
-
-      // Update local state immediately (don't wait for real-time subscription)
-      setOrders(prevOrders => {
-        return prevOrders.map(order => {
-          if (order.id === orderId) {
-            return {
-              ...order,
-              items: order.items.map(item => {
-                if (item.id === itemId) {
-                  return {
-                    ...item,
-                    status: newStatus,
-                    history: newHistory as any,
-                    technicalLog: newLog as any,
-                    lastUpdated: now
-                  };
-                }
-                return item;
-              })
-            };
-          }
-          return order;
-        });
       });
 
     } catch (error) {
@@ -1735,7 +1761,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   return (
     <AppContext.Provider value={{
-      orders, inventory, members, products, customers, workflows,
+      orders, setOrders, inventory, members, products, customers, workflows,
       addOrder, updateOrder, deleteOrder, deleteOrderItem, updateOrderItemStatus,
       updateInventory, updateInventoryItem, deleteInventoryItem, addInventoryItem,
       updateMember, deleteMember, addMember,

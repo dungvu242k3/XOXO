@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Users, Search, Plus, Phone, Mail, Building2, Briefcase, UserCheck, UserX, MoreHorizontal, Eye, Edit, Trash2, X } from 'lucide-react';
-import { Member } from '../types';
+import { Briefcase, Building2, Edit, Eye, Mail, MoreHorizontal, Phone, Plus, Search, Trash2, UserCheck, Users, UserX, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../context';
+import { Member } from '../types';
 
 // Component Select với khả năng thêm mới
 const SelectWithAdd: React.FC<{
@@ -363,11 +363,11 @@ export const Members: React.FC = () => {
       };
 
       await updateMember(editingMember.id, updatedData);
-      
+
       // Đóng modal và reset
       setShowEditModal(false);
       setEditingMember(null);
-      
+
       // Hiển thị thông báo thành công
       alert('Đã cập nhật nhân sự thành công!');
     } catch (error: any) {
@@ -436,10 +436,10 @@ export const Members: React.FC = () => {
                     label="Vai trò *"
                     value={newMember.role}
                     onChange={(role) => {
-                      setNewMember({ 
-                        ...newMember, 
-                        role: role as Member['role'], 
-                        department: getDepartment(role as Member['role']) as Member['department'] 
+                      setNewMember({
+                        ...newMember,
+                        role: role as Member['role'],
+                        department: getDepartment(role as Member['role']) as Member['department']
                       });
                     }}
                     options={allRoles}
@@ -818,7 +818,7 @@ export const Members: React.FC = () => {
 
       {/* Members by Department */}
       <div className="space-y-6">
-        {Object.entries(membersByDept).map(([dept, members]) => (
+        {Object.entries(membersByDept).map(([dept, members]: [string, Member[]]) => (
           <div key={dept}>
             <h3 className="flex items-center gap-2 text-lg font-bold text-slate-100 mb-4 px-1">
               <Building2 size={20} className="text-gold-500" />
@@ -882,8 +882,8 @@ export const Members: React.FC = () => {
                         )}
                       </div>
                       <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${member.status === 'Active'
-                          ? 'bg-emerald-900/20 text-emerald-500 border border-emerald-900/30'
-                          : 'bg-red-900/20 text-red-500 border border-red-900/30'
+                        ? 'bg-emerald-900/20 text-emerald-500 border border-emerald-900/30'
+                        : 'bg-red-900/20 text-red-500 border border-red-900/30'
                         }`}>
                         {member.status === 'Active' ? 'Đang làm việc' : 'Nghỉ việc'}
                       </span>

@@ -1,10 +1,10 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Package, Search, AlertTriangle, Plus, Filter, ArrowDownUp, Image as ImageIcon, MoreHorizontal, Eye, Edit, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, Edit, Eye, Image as ImageIcon, MoreHorizontal, Package, Plus, Search, Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../context';
-import { TableFilter, FilterState, filterByDateRange } from './TableFilter';
+import { FilterState, TableFilter, filterByDateRange } from './TableFilter';
 
 // Action Menu Component
-const ActionMenu: React.FC<{ 
+const ActionMenu: React.FC<{
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -34,7 +34,7 @@ const ActionMenu: React.FC<{
       >
         <MoreHorizontal size={20} />
       </button>
-      
+
       {isOpen && (
         <div className="absolute right-0 top-full mt-1 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl z-50 min-w-[140px] overflow-hidden">
           <button
@@ -89,7 +89,7 @@ const generateSKU = (): string => {
 };
 
 export const Inventory: React.FC = () => {
-  const { inventory, addInventoryItem, updateInventoryItem, deleteInventoryItem } = useAppStore(); 
+  const { inventory, addInventoryItem, updateInventoryItem, deleteInventoryItem } = useAppStore();
   const [filter, setFilter] = useState<FilterState>({ locNhanh: 'all', thoiGian: { tuNgay: null, denNgay: null } });
   const [searchText, setSearchText] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -110,28 +110,28 @@ export const Inventory: React.FC = () => {
   // Lọc dữ liệu theo thời gian và tìm kiếm
   const filteredInventory = useMemo(() => {
     let result = filterByDateRange(inventory, filter, 'lastImport');
-    
+
     if (searchText.trim()) {
       const search = searchText.toLowerCase();
-      result = result.filter(i => 
-        i.name.toLowerCase().includes(search) ||
-        i.sku.toLowerCase().includes(search) ||
-        i.supplier.toLowerCase().includes(search)
+      result = result.filter((i: any) =>
+        (i.name || '').toLowerCase().includes(search) ||
+        (i.sku || '').toLowerCase().includes(search) ||
+        (i.supplier || '').toLowerCase().includes(search)
       );
     }
-    
+
     return result;
   }, [inventory, filter, searchText]);
 
   const handleAddItem = async () => {
     // Auto-generate SKU if not set
     const finalSKU = newItem.sku || generateSKU();
-    
+
     if (!finalSKU || !newItem.name || !newItem.quantity || !newItem.unit || !newItem.importPrice) {
       alert('Vui lòng điền đầy đủ thông tin bắt buộc!');
       return;
     }
-    
+
     try {
       // Không tạo ID - để database tự tạo
       const newInventoryItem: any = {
@@ -145,14 +145,14 @@ export const Inventory: React.FC = () => {
         supplier: newItem.supplier || '',
         lastImport: new Date().toLocaleDateString('vi-VN')
       };
-      
+
       // Only add image if it exists and is not empty
       if (newItem.image && newItem.image.trim() !== '') {
         newInventoryItem.image = newItem.image;
       }
-      
+
       await addInventoryItem(newInventoryItem);
-      
+
       setNewItem({
         sku: generateSKU(), // Auto-generate new SKU for next item
         name: '',
@@ -176,7 +176,7 @@ export const Inventory: React.FC = () => {
       alert('Vui lòng điền đầy đủ thông tin bắt buộc!');
       return;
     }
-    
+
     try {
       const updatedItem: any = {
         ...editingItem,
@@ -185,7 +185,7 @@ export const Inventory: React.FC = () => {
         minThreshold: parseFloat(editingItem.minThreshold) || 0,
         importPrice: parseInt(editingItem.importPrice)
       };
-      
+
       // Only add image if it exists and is not empty, otherwise remove it
       if (editingItem.image && editingItem.image.trim() !== '') {
         updatedItem.image = editingItem.image;
@@ -193,9 +193,9 @@ export const Inventory: React.FC = () => {
         // Remove image property if empty
         delete updatedItem.image;
       }
-      
+
       await updateInventoryItem(editingItem.id, updatedItem);
-      
+
       setShowEditModal(false);
       setEditingItem(null);
     } catch (error: any) {
@@ -221,14 +221,14 @@ export const Inventory: React.FC = () => {
           <div className="bg-neutral-900 rounded-xl shadow-2xl border border-neutral-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-neutral-900 border-b border-neutral-800 p-6 flex justify-between items-center">
               <h2 className="text-xl font-serif font-bold text-slate-100">Thêm Vật Tư Mới</h2>
-              <button 
+              <button
                 onClick={() => setShowAddModal(false)}
                 className="text-slate-500 hover:text-slate-300 transition-colors"
               >
                 ✕
               </button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -242,7 +242,7 @@ export const Inventory: React.FC = () => {
                     className="w-full px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-slate-300 cursor-not-allowed opacity-75 font-mono"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     Tên vật tư <span className="text-red-500">*</span>
@@ -250,19 +250,19 @@ export const Inventory: React.FC = () => {
                   <input
                     type="text"
                     value={newItem.name}
-                    onChange={(e) => setNewItem({...newItem, name: e.target.value})}
+                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
                     placeholder="VD: Xi Saphir Medaille d'Or"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">Danh mục</label>
                   <select
                     value={newItem.category}
-                    onChange={(e) => setNewItem({...newItem, category: e.target.value as typeof newItem.category})}
+                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value as typeof newItem.category })}
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all"
                   >
                     <option value="Hoá chất">Hoá chất</option>
@@ -271,7 +271,7 @@ export const Inventory: React.FC = () => {
                     <option value="Vật tư tiêu hao">Vật tư tiêu hao</option>
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     Đơn vị <span className="text-red-500">*</span>
@@ -279,13 +279,13 @@ export const Inventory: React.FC = () => {
                   <input
                     type="text"
                     value={newItem.unit}
-                    onChange={(e) => setNewItem({...newItem, unit: e.target.value})}
+                    onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
                     placeholder="VD: Hộp, Chai, Cái..."
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
@@ -294,12 +294,12 @@ export const Inventory: React.FC = () => {
                   <input
                     type="number"
                     value={newItem.quantity}
-                    onChange={(e) => setNewItem({...newItem, quantity: e.target.value})}
+                    onChange={(e) => setNewItem({ ...newItem, quantity: e.target.value })}
                     placeholder="15"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     Ngưỡng tối thiểu
@@ -307,12 +307,12 @@ export const Inventory: React.FC = () => {
                   <input
                     type="number"
                     value={newItem.minThreshold}
-                    onChange={(e) => setNewItem({...newItem, minThreshold: e.target.value})}
+                    onChange={(e) => setNewItem({ ...newItem, minThreshold: e.target.value })}
                     placeholder="5"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     Giá nhập (₫) <span className="text-red-500">*</span>
@@ -320,24 +320,24 @@ export const Inventory: React.FC = () => {
                   <input
                     type="number"
                     value={newItem.importPrice}
-                    onChange={(e) => setNewItem({...newItem, importPrice: e.target.value})}
+                    onChange={(e) => setNewItem({ ...newItem, importPrice: e.target.value })}
                     placeholder="350000"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-2">Nhà cung cấp</label>
                 <input
                   type="text"
                   value={newItem.supplier}
-                  onChange={(e) => setNewItem({...newItem, supplier: e.target.value})}
+                  onChange={(e) => setNewItem({ ...newItem, supplier: e.target.value })}
                   placeholder="VD: Saphir Vietnam"
                   className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-2">Hình ảnh</label>
                 <input
@@ -357,7 +357,7 @@ export const Inventory: React.FC = () => {
                       const reader = new FileReader();
                       reader.onload = (event) => {
                         const base64 = event.target?.result as string;
-                        setNewItem({...newItem, image: base64});
+                        setNewItem({ ...newItem, image: base64 });
                       };
                       reader.readAsDataURL(file);
                     }
@@ -371,7 +371,7 @@ export const Inventory: React.FC = () => {
                 )}
               </div>
             </div>
-            
+
             <div className="sticky bottom-0 bg-neutral-900 border-t border-neutral-800 p-6 flex gap-3 justify-end">
               <button
                 onClick={() => setShowAddModal(false)}
@@ -396,7 +396,7 @@ export const Inventory: React.FC = () => {
           <div className="bg-neutral-900 rounded-xl shadow-2xl border border-neutral-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-neutral-900 border-b border-neutral-800 p-6 flex justify-between items-center">
               <h2 className="text-xl font-serif font-bold text-slate-100">Sửa Vật Tư</h2>
-              <button 
+              <button
                 onClick={() => {
                   setShowEditModal(false);
                   setEditingItem(null);
@@ -406,7 +406,7 @@ export const Inventory: React.FC = () => {
                 ✕
               </button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -416,12 +416,12 @@ export const Inventory: React.FC = () => {
                   <input
                     type="text"
                     value={editingItem.sku}
-                    onChange={(e) => setEditingItem({...editingItem, sku: e.target.value.toUpperCase()})}
+                    onChange={(e) => setEditingItem({ ...editingItem, sku: e.target.value.toUpperCase() })}
                     placeholder="VD: CHEM-SAP-01"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600 font-mono"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     Tên vật tư <span className="text-red-500">*</span>
@@ -429,19 +429,19 @@ export const Inventory: React.FC = () => {
                   <input
                     type="text"
                     value={editingItem.name}
-                    onChange={(e) => setEditingItem({...editingItem, name: e.target.value})}
+                    onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
                     placeholder="VD: Xi Saphir Medaille d'Or"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">Danh mục</label>
                   <select
                     value={editingItem.category}
-                    onChange={(e) => setEditingItem({...editingItem, category: e.target.value as typeof editingItem.category})}
+                    onChange={(e) => setEditingItem({ ...editingItem, category: e.target.value as typeof editingItem.category })}
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all"
                   >
                     <option value="Hoá chất">Hoá chất</option>
@@ -450,7 +450,7 @@ export const Inventory: React.FC = () => {
                     <option value="Vật tư tiêu hao">Vật tư tiêu hao</option>
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     Đơn vị <span className="text-red-500">*</span>
@@ -458,13 +458,13 @@ export const Inventory: React.FC = () => {
                   <input
                     type="text"
                     value={editingItem.unit}
-                    onChange={(e) => setEditingItem({...editingItem, unit: e.target.value})}
+                    onChange={(e) => setEditingItem({ ...editingItem, unit: e.target.value })}
                     placeholder="VD: Hộp, Chai, Cái..."
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
@@ -473,12 +473,12 @@ export const Inventory: React.FC = () => {
                   <input
                     type="number"
                     value={editingItem.quantity}
-                    onChange={(e) => setEditingItem({...editingItem, quantity: e.target.value})}
+                    onChange={(e) => setEditingItem({ ...editingItem, quantity: e.target.value })}
                     placeholder="15"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     Ngưỡng tối thiểu
@@ -486,12 +486,12 @@ export const Inventory: React.FC = () => {
                   <input
                     type="number"
                     value={editingItem.minThreshold}
-                    onChange={(e) => setEditingItem({...editingItem, minThreshold: e.target.value})}
+                    onChange={(e) => setEditingItem({ ...editingItem, minThreshold: e.target.value })}
                     placeholder="5"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     Giá nhập (₫) <span className="text-red-500">*</span>
@@ -499,24 +499,24 @@ export const Inventory: React.FC = () => {
                   <input
                     type="number"
                     value={editingItem.importPrice}
-                    onChange={(e) => setEditingItem({...editingItem, importPrice: e.target.value})}
+                    onChange={(e) => setEditingItem({ ...editingItem, importPrice: e.target.value })}
                     placeholder="350000"
                     className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                   />
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-2">Nhà cung cấp</label>
                 <input
                   type="text"
                   value={editingItem.supplier}
-                  onChange={(e) => setEditingItem({...editingItem, supplier: e.target.value})}
+                  onChange={(e) => setEditingItem({ ...editingItem, supplier: e.target.value })}
                   placeholder="VD: Saphir Vietnam"
                   className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-slate-400 mb-2">Hình ảnh</label>
                 <input
@@ -536,7 +536,7 @@ export const Inventory: React.FC = () => {
                       const reader = new FileReader();
                       reader.onload = (event) => {
                         const base64 = event.target?.result as string;
-                        setEditingItem({...editingItem, image: base64});
+                        setEditingItem({ ...editingItem, image: base64 });
                       };
                       reader.readAsDataURL(file);
                     }
@@ -550,7 +550,7 @@ export const Inventory: React.FC = () => {
                 )}
               </div>
             </div>
-            
+
             <div className="sticky bottom-0 bg-neutral-900 border-t border-neutral-800 p-6 flex gap-3 justify-end">
               <button
                 onClick={() => {
@@ -578,78 +578,78 @@ export const Inventory: React.FC = () => {
           <p className="text-slate-500 mt-1">Theo dõi nguyên vật liệu, hoá chất và phụ tùng.</p>
         </div>
         <div className="flex gap-2">
-           <button 
-             onClick={() => alert('Chức năng xuất/nhập kho đang được phát triển')}
-             className="flex items-center gap-2 px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-300 hover:bg-neutral-700 hover:text-white transition-colors"
-           >
-             <ArrowDownUp size={18} />
-             <span>Xuất/Nhập</span>
-           </button>
-           <button 
-             onClick={() => {
-               setNewItem({
-                 ...newItem,
-                 sku: generateSKU() // Auto-generate SKU when opening modal
-               });
-               setShowAddModal(true);
-             }}
-             className="flex items-center gap-2 bg-gold-600 hover:bg-gold-700 text-black font-medium px-4 py-2.5 rounded-lg shadow-lg shadow-gold-900/20 transition-all"
-           >
-             <Plus size={18} />
-             <span>Thêm Mới</span>
-           </button>
+          <button
+            onClick={() => alert('Chức năng xuất/nhập kho đang được phát triển')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-300 hover:bg-neutral-700 hover:text-white transition-colors"
+          >
+            <ArrowDownUp size={18} />
+            <span>Xuất/Nhập</span>
+          </button>
+          <button
+            onClick={() => {
+              setNewItem({
+                ...newItem,
+                sku: generateSKU() // Auto-generate SKU when opening modal
+              });
+              setShowAddModal(true);
+            }}
+            className="flex items-center gap-2 bg-gold-600 hover:bg-gold-700 text-black font-medium px-4 py-2.5 rounded-lg shadow-lg shadow-gold-900/20 transition-all"
+          >
+            <Plus size={18} />
+            <span>Thêm Mới</span>
+          </button>
         </div>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-neutral-900 p-6 rounded-xl shadow-lg shadow-black/20 border border-neutral-800 group">
-           <div className="flex items-center gap-4">
-              <div className="p-3 bg-blue-900/20 text-blue-500 rounded-lg border border-blue-900/30">
-                <Package size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-slate-500 font-medium group-hover:text-gold-500 transition-colors">Tổng mặt hàng</p>
-                <h3 className="text-2xl font-bold text-slate-100">{inventory.length}</h3>
-              </div>
-           </div>
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-blue-900/20 text-blue-500 rounded-lg border border-blue-900/30">
+              <Package size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500 font-medium group-hover:text-gold-500 transition-colors">Tổng mặt hàng</p>
+              <h3 className="text-2xl font-bold text-slate-100">{inventory.length}</h3>
+            </div>
+          </div>
         </div>
         <div className="bg-neutral-900 p-6 rounded-xl shadow-lg shadow-black/20 border border-neutral-800 group">
-           <div className="flex items-center gap-4">
-              <div className="p-3 bg-red-900/20 text-red-500 rounded-lg border border-red-900/30">
-                <AlertTriangle size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-slate-500 font-medium group-hover:text-gold-500 transition-colors">Cảnh báo sắp hết</p>
-                <h3 className="text-2xl font-bold text-slate-100">
-                  {inventory.filter(i => i.quantity <= i.minThreshold).length.toLocaleString('vi-VN')}
-                </h3>
-              </div>
-           </div>
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-red-900/20 text-red-500 rounded-lg border border-red-900/30">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500 font-medium group-hover:text-gold-500 transition-colors">Cảnh báo sắp hết</p>
+              <h3 className="text-2xl font-bold text-slate-100">
+                {inventory.filter(i => i.quantity <= i.minThreshold).length.toLocaleString('vi-VN')}
+              </h3>
+            </div>
+          </div>
         </div>
         <div className="bg-neutral-900 p-6 rounded-xl shadow-lg shadow-black/20 border border-neutral-800 group">
-           <div className="flex items-center gap-4">
-              <div className="p-3 bg-gold-900/20 text-gold-500 rounded-lg border border-gold-900/30">
-                <Search size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-slate-500 font-medium group-hover:text-gold-500 transition-colors">Giá trị tồn kho</p>
-                <h3 className="text-2xl font-bold text-slate-100">
-                  {(inventory.reduce((acc, i) => acc + (i.quantity * i.importPrice), 0)).toLocaleString('vi-VN')} ₫
-                </h3>
-              </div>
-           </div>
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-gold-900/20 text-gold-500 rounded-lg border border-gold-900/30">
+              <Search size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500 font-medium group-hover:text-gold-500 transition-colors">Giá trị tồn kho</p>
+              <h3 className="text-2xl font-bold text-slate-100">
+                {(inventory.reduce((acc, i) => acc + (i.quantity * i.importPrice), 0)).toLocaleString('vi-VN')} ₫
+              </h3>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Inventory List */}
       <div className="bg-neutral-900 rounded-xl shadow-lg shadow-black/20 border border-neutral-800 overflow-hidden">
         <div className="p-4 border-b border-neutral-800 flex flex-col sm:flex-row gap-4">
-           <div className="relative flex-1 max-w-md">
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-            <input 
-              type="text" 
-              placeholder="Tìm theo tên, mã SKU..." 
+            <input
+              type="text"
+              placeholder="Tìm theo tên, mã SKU..."
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
@@ -659,7 +659,7 @@ export const Inventory: React.FC = () => {
             <TableFilter onFilterChange={setFilter} />
           </div>
         </div>
-        
+
         <div className="p-4 space-y-4">
           {filteredInventory.length === 0 ? (
             <div className="p-8 text-center text-slate-500">
@@ -718,7 +718,7 @@ export const Inventory: React.FC = () => {
                     />
                   </div>
                 </div>
-                
+
                 <div className="mt-4 flex items-center justify-between">
                   <div className="flex items-center gap-4 text-sm">
                     <div>
