@@ -1684,7 +1684,12 @@ export const KanbanBoard: React.FC = () => {
         const isCompleted = serviceItems.every(item => {
           const status = item.status.toLowerCase();
           return ['done', 'cancel', 'delivered', 'hoan_thanh', 'da_giao', 'huy'].includes(status) ||
-            (workflows || []).some(w => w.id === item.workflowId && w.stages?.find(s => s.id === item.status)?.name === 'Done');
+            (workflows || []).some(w => w.stages?.some(s => {
+              const sId = (s.id || '').toLowerCase();
+              const iStatus = (status || '').toLowerCase();
+              const sName = (s.name || '').trim().toLowerCase();
+              return sId === iStatus && ['done', 'hoàn thành', 'hoàn tất', 'đã xong', 'finish', 'finished', 'complete', 'completed'].some(k => sName.includes(k));
+            }));
         });
 
         if (!isCompleted) {
@@ -1695,10 +1700,28 @@ export const KanbanBoard: React.FC = () => {
 
       // Only show the first incomplete service (hide completed ones)
       if (firstIncompleteIndex !== -1) {
-        const visibleItems = filteredByWorkflow.filter(item => {
+        let visibleItems = filteredByWorkflow.filter(item => {
           if (!item.serviceId) return true;
           const idx = serviceIds.indexOf(item.serviceId);
           return idx === firstIncompleteIndex; // Only show current active service
+        });
+
+        // Hide items that are explicitly "done" or "cancel" from this view
+        visibleItems = visibleItems.filter(item => {
+          const status = item.status.toLowerCase();
+          const isExplicitDone = ['done', 'cancel', 'delivered', 'hoan_thanh', 'hoan thanh', 'da_giao', 'huy'].includes(status);
+
+          // Also check if status is a UUID for a "Done" stage (Robust Check)
+          const isDoneStage = (workflows || []).some(w =>
+            w.stages?.some(s => {
+              const sId = (s.id || '').toLowerCase();
+              const iStatus = (status || '').toLowerCase();
+              const sName = (s.name || '').trim().toLowerCase();
+              return sId === iStatus && ['done', 'hoàn thành', 'hoàn tất', 'đã xong', 'finish', 'finished', 'complete', 'completed'].some(k => sName.includes(k));
+            })
+          );
+
+          return !isExplicitDone && !isDoneStage;
         });
 
         console.log('📋 Sequential filter applied:', {
@@ -1711,7 +1734,22 @@ export const KanbanBoard: React.FC = () => {
       }
     }
 
-    return filteredByWorkflow;
+    // Hide items that are explicitly "done" or "cancel" from this view (fallback case)
+    return filteredByWorkflow.filter(item => {
+      const status = (item.status || '').trim().toLowerCase();
+      const isExplicitDone = ['done', 'cancel', 'delivered', 'hoan_thanh', 'hoan thanh', 'da_giao', 'huy'].includes(status);
+
+      const isDoneStage = (workflows || []).some(w =>
+        w.stages?.some(s => {
+          const sId = (s.id || '').toLowerCase();
+          const iStatus = (status || '').toLowerCase();
+          const sName = (s.name || '').trim().toLowerCase();
+          return sId === iStatus && ['done', 'hoàn thành', 'hoàn tất', 'đã xong', 'finish', 'finished', 'complete', 'completed'].some(k => sName.includes(k));
+        })
+      );
+
+      return !isExplicitDone && !isDoneStage;
+    });
   }, [items, activeWorkflow, workflows, Array.from(selectedOrderIds).join(',')]);
 
   const getWorkflowCount = (workflowId: string, types: ServiceType[]) => {

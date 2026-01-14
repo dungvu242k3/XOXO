@@ -1766,10 +1766,7 @@ export const Orders: React.FC = () => {
                     </td>
                     <td className="p-4 text-right font-bold text-gold-400">{formatPrice(order.totalAmount)} ₫</td>
                     <td className="p-4">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${order.status === OrderStatus.DONE ? 'bg-green-500/10 text-green-500 border-green-500/20' :
-                        order.status === OrderStatus.PENDING ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' :
-                          'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                        }`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getStatusColor(order.status)}`}>
                         {order.status}
                       </span>
                     </td>
@@ -2400,6 +2397,7 @@ export const Orders: React.FC = () => {
                         disabled={!selectedItemId}
                         className="px-4 py-2 bg-slate-100 text-black rounded-lg text-sm font-medium hover:bg-white disabled:bg-neutral-800 disabled:text-slate-600 transition-colors"
                       >
+                        Thêm
                       </button>
                     </div>
                   </div>

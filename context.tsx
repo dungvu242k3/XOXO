@@ -1331,30 +1331,85 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       // 🚀 OPTIMISTIC UPDATE: Update local state immediately
+      let computedOrderStatus: OrderStatus | undefined;
+
       setOrders(prevOrders => {
         return prevOrders.map(order => {
           if (order.id === orderId) {
+            // Create updated items array
+            const updatedItems = order.items.map(item => {
+              if (item.id === itemId) {
+                return {
+                  ...item,
+                  status: newStatus,
+                  history: newHistory as any,
+                  technicalLog: newLog as any,
+                  lastUpdated: now
+                };
+              }
+              return item;
+            });
+
+            // --- AUTO-UPDATE ORDER STATUS LOGIC ---
+            // Filter only service items (ignore products)
+            const serviceItems = updatedItems.filter(i => !i.isProduct);
+
+            if (serviceItems.length > 0) {
+              // Helper to check for "Done" status robustly
+              const isItemDone = (status: string) => {
+                const s = (status || '').toLowerCase().trim();
+                return ['done', 'hoàn thành', 'hoàn tất', 'đã xong', 'finish', 'finished', 'complete', 'completed', 'delivered', 'da_giao', 'huy', 'cancel'].some(k => s.includes(k));
+              };
+
+              const isAllDone = serviceItems.every(i => isItemDone(i.status));
+              const isStarted = serviceItems.some(i => !['in-queue', 'pending', 'cho_xu_ly'].includes((i.status || '').toLowerCase()) && !isItemDone(i.status));
+
+              if (isAllDone) {
+                computedOrderStatus = OrderStatus.DONE;
+              } else if (isStarted || serviceItems.some(i => !isItemDone(i.status) && !['in-queue', 'pending', 'cho_xu_ly'].includes((i.status || '').toLowerCase()))) {
+                // Any item started but not all done -> Processing
+                // Also catching case where items are just not pending
+                computedOrderStatus = OrderStatus.PROCESSING;
+              } else {
+                // If not all done and nothing clearly started (still pending), keep original or set to pending?
+                // Safer to keep original unless we want to force Pending
+                computedOrderStatus = order.status;
+              }
+
+              // Only override if strictly upgrading status or completing
+              // Prevent auto-reverting to Pending if user manually set something else (unless really all pending)
+              if (computedOrderStatus === OrderStatus.PROCESSING && order.status === OrderStatus.PENDING) {
+                // Allow upgrade
+              } else if (computedOrderStatus === OrderStatus.DONE) {
+                // Allow complete
+              } else {
+                computedOrderStatus = order.status; // Fallback to current
+              }
+
+              // SIMPLIFIED LOGIC:
+              // If all done -> DONE
+              // If any started and order is Pending -> PROCESSING
+              if (isAllDone) {
+                computedOrderStatus = OrderStatus.DONE;
+              } else if (order.status === OrderStatus.PENDING && serviceItems.some(i => !['in-queue', 'pending', 'cho_xu_ly'].includes((i.status || '').toLowerCase()))) {
+                computedOrderStatus = OrderStatus.PROCESSING;
+              } else {
+                computedOrderStatus = order.status;
+              }
+            }
+            // -------------------------------------
+
             return {
               ...order,
-              items: order.items.map(item => {
-                if (item.id === itemId) {
-                  return {
-                    ...item,
-                    status: newStatus,
-                    history: newHistory as any,
-                    technicalLog: newLog as any,
-                    lastUpdated: now
-                  };
-                }
-                return item;
-              })
+              status: computedOrderStatus || order.status,
+              items: updatedItems
             };
           }
           return order;
         });
       });
 
-      // Cập nhật lên Supabase
+      // Cập nhật lên Supabase (Item Status)
       console.log('📤 Updating order item status in database:', {
         itemId,
         orderId,
@@ -1384,6 +1439,81 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           details: updateError.details
         });
         throw updateError;
+      }
+
+      // --- RE-VERIFY & AUTO-UPDATE ORDER STATUS (Using fresh DB data) ---
+      // Fetch all items for this order directly from DB to avoid local state staleness
+      const { data: dbItems, error: itemsError } = await supabase
+        .from(DB_TABLES.SERVICE_ITEMS)
+        .select('trang_thai, la_san_pham')
+        .eq('id_don_hang', orderId);
+
+      if (!itemsError && dbItems) {
+        const dbServiceItems = dbItems.filter(i => !i.la_san_pham);
+
+        if (dbServiceItems.length > 0) {
+          const isDbItemDone = (status: string | null) => {
+            if (!status) return false;
+            const s = status.toLowerCase().trim();
+            // 1. Check explicit keywords
+            const isExplicit = ['done', 'hoàn thành', 'hoàn tất', 'đã xong', 'finish', 'finished', 'complete', 'completed', 'delivered', 'da_giao', 'huy', 'cancel'].some(k => s.includes(k));
+            if (isExplicit) return true;
+
+            // 2. Check if it's a UUID for a Done stage in workflows
+            // Access 'workflows' from the closure (it's available in AppProvider)
+            return (workflows || []).some(w =>
+              w.stages?.some(stage => {
+                const stageId = (stage.id || '').toLowerCase();
+                if (stageId !== s) return false;
+
+                const stageName = (stage.name || '').toLowerCase().trim();
+                return ['done', 'hoàn thành', 'hoàn tất', 'đã xong', 'finish', 'finished', 'complete', 'completed'].some(k => stageName.includes(k));
+              })
+            );
+          };
+
+          const isAllDbDone = dbServiceItems.every(i => isDbItemDone(i.trang_thai));
+          const isAnyDbStarted = dbServiceItems.some(i => !['in-queue', 'pending', 'cho_xu_ly'].includes((i.trang_thai || '').toLowerCase()) && !isDbItemDone(i.trang_thai));
+
+          let newDbStatus = currentOrder.status; // Default to current
+
+          // Logic:
+          // 1. All Done -> DONE
+          // 2. Not all done, but some started -> PROCESSING
+          // 3. Not all done, but some completed (and others pending) -> PROCESSING (Because work has started)
+
+          if (isAllDbDone) {
+            newDbStatus = OrderStatus.DONE;
+          } else {
+            // Check if ANY non-pending activity exists (either started or finished)
+            const hasActivity = dbServiceItems.some(i => !['in-queue', 'pending', 'cho_xu_ly'].includes((i.trang_thai || '').toLowerCase()));
+
+            if (hasActivity && currentOrder.status === OrderStatus.PENDING) {
+              newDbStatus = OrderStatus.PROCESSING;
+            } else if (hasActivity && currentOrder.status === OrderStatus.DONE) {
+              // Re-opening order if it was done but now not all done
+              newDbStatus = OrderStatus.PROCESSING;
+            }
+          }
+
+          if (newDbStatus !== currentOrder.status) {
+            console.log('🔄 Auto-updating Order Status (Validated by DB):', {
+              orderId,
+              oldStatus: currentOrder.status,
+              newStatus: newDbStatus,
+              dbItemsCount: dbServiceItems.length,
+              isAllDone: isAllDbDone
+            });
+
+            await supabase
+              .from(DB_TABLES.ORDERS)
+              .update({ trang_thai: mapOrderStatusDisplayToDb(newDbStatus) })
+              .eq('id', orderId);
+
+            // Update local state for consistency
+            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newDbStatus } : o));
+          }
+        }
       }
 
       console.log('✅ Order item status updated successfully:', {
