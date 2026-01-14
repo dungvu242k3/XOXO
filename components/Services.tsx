@@ -6,7 +6,17 @@ import { ServiceCatalogItem, ServiceCategory, WorkflowDefinition } from '../type
 import { FilterState, TableFilter } from './TableFilter';
 
 // Define 4-level category structure
+// Define 4-level category structure
 const CATEGORY_TREE: ServiceCategory[] = [];
+
+// Helper: Format number with dots (1000 -> 1.000)
+const formatNumberInput = (value: string) => {
+  if (!value) return '';
+  // Keep only digits
+  const number = value.replace(/\D/g, '');
+  // Add dots
+  return number.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
 
 // Action Menu Component around Portal
 const ActionMenu: React.FC<{
@@ -763,7 +773,7 @@ export const Services: React.FC = () => {
       // Tạo đối tượng dịch vụ (KHÔNG gửi id - để database tự tạo)
       const serviceData: any = {
         ten_dich_vu: newService.name,
-        gia_niem_yet: parseFloat(newService.price),
+        gia_niem_yet: parseFloat(newService.price.replace(/\./g, '')),
         cac_buoc_quy_trinh: newService.workflows.sort((a, b) => a.order - b.order)
       };
 
@@ -801,7 +811,7 @@ export const Services: React.FC = () => {
         .map(w => workflows.find(wf => wf.id === w.id)?.label)
         .filter(Boolean);
 
-      alert(`Thêm dịch vụ thành công!\n\nID: ${serviceId}\nTên: ${newService.name}\nDanh mục: ${newService.category}\nGiá: ${formatPrice(parseFloat(newService.price))} ₫\nQuy trình: ${workflowLabels.join(' → ')}\n\nĐã lưu vào Supabase!`);
+      alert(`Thêm dịch vụ thành công!\n\nID: ${serviceId}\nTên: ${newService.name}\nDanh mục: ${newService.category}\nGiá: ${formatPrice(parseFloat(newService.price.replace(/\./g, '')))} ₫\nQuy trình: ${workflowLabels.join(' → ')}\n\nĐã lưu vào Supabase!`);
 
       setNewService({
         name: '',
@@ -852,7 +862,7 @@ export const Services: React.FC = () => {
     setNewService({
       name: service.name,
       category: service.category,
-      price: service.price.toString(),
+      price: formatNumberInput(service.price.toString()),
       desc: service.desc,
       workflows: workflows,
       image: service.image
@@ -892,7 +902,7 @@ export const Services: React.FC = () => {
       // Cập nhật đối tượng dịch vụ với tên cột tiếng Việt
       const serviceData: any = {
         ten_dich_vu: newService.name,
-        gia_niem_yet: parseFloat(newService.price),
+        gia_niem_yet: parseFloat(newService.price.replace(/\./g, '')),
         mo_ta: newService.desc || '',
         anh_dich_vu: newService.image || '',
         id_quy_trinh: newService.workflows[0]?.id || null, // Legacy field
@@ -926,7 +936,7 @@ export const Services: React.FC = () => {
         .map(w => workflows.find(wf => wf.id === w.id)?.label)
         .filter(Boolean);
 
-      alert(`Cập nhật dịch vụ thành công!\n\nTên: ${newService.name}\nDanh mục: ${newService.category}\nGiá: ${formatPrice(parseFloat(newService.price))} ₫\nQuy trình: ${workflowLabels.join(' → ')}\n\nĐã lưu vào Supabase!`);
+      alert(`Cập nhật dịch vụ thành công!\n\nTên: ${newService.name}\nDanh mục: ${newService.category}\nGiá: ${formatPrice(parseFloat(newService.price.replace(/\./g, '')))} ₫\nQuy trình: ${workflowLabels.join(' → ')}\n\nĐã lưu vào Supabase!`);
 
       setNewService({
         name: '',
@@ -1375,10 +1385,10 @@ export const Services: React.FC = () => {
                       Giá dịch vụ (₫) <span className="text-red-500">*</span>
                     </label>
                     <input
-                      type="number"
+                      type="text"
                       value={newService.price}
-                      onChange={(e) => setNewService({ ...newService, price: e.target.value })}
-                      placeholder="1500000"
+                      onChange={(e) => setNewService({ ...newService, price: formatNumberInput(e.target.value) })}
+                      placeholder="1.500.000"
                       className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                     />
                   </div>
@@ -1697,10 +1707,10 @@ export const Services: React.FC = () => {
                       Giá dịch vụ (₫) <span className="text-red-500">*</span>
                     </label>
                     <input
-                      type="number"
+                      type="text"
                       value={newService.price}
-                      onChange={(e) => setNewService({ ...newService, price: e.target.value })}
-                      placeholder="1500000"
+                      onChange={(e) => setNewService({ ...newService, price: formatNumberInput(e.target.value) })}
+                      placeholder="1.500.000"
                       className="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-2 focus:ring-gold-500 outline-none transition-all placeholder-slate-600"
                     />
                   </div>

@@ -26,6 +26,16 @@ const formatPrice = (amount: number | string | undefined | null): string => {
   return numValue.toLocaleString('vi-VN');
 };
 
+// Utility for formatting numbers with thousand separators for input
+const formatNumberInput = (value: string): string => {
+  const cleanValue = value.replace(/\D/g, '');
+  // Remove leading zeros if not just "0"
+  if (cleanValue.length > 1 && cleanValue.startsWith('0')) {
+    return cleanValue.replace(/^0+/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+  return cleanValue.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
 // Utility for formatting date (only date, no time)
 const formatDate = (date: string | Date | undefined | null): string => {
   if (!date) return '';
@@ -989,8 +999,12 @@ export const Orders: React.FC = () => {
   const [selectedItemId, setSelectedItemId] = useState('');
   const [customPrice, setCustomPrice] = useState<string>('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [newOrderDiscount, setNewOrderDiscount] = useState<string>('0');
-  const [newOrderAdditionalFees, setNewOrderAdditionalFees] = useState<string>('0');
+  const [newOrderDeposit, setNewOrderDeposit] = useState<string>('');
+  const [newOrderExpectedDelivery, setNewOrderExpectedDelivery] = useState<string>(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  const [newOrderDiscount, setNewOrderDiscount] = useState<string>('');
+  const [newOrderDiscountType, setNewOrderDiscountType] = useState<'money' | 'percent'>('money');
+  const [newOrderAdditionalFees, setNewOrderAdditionalFees] = useState<string>('');
+  const [newOrderSurchargeReason, setNewOrderSurchargeReason] = useState<string>('');
   const [selectedItemsForMultiAdd, setSelectedItemsForMultiAdd] = useState<Set<string>>(new Set());
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
   const [editingItemNotes, setEditingItemNotes] = useState<string>('');
@@ -1012,7 +1026,9 @@ export const Orders: React.FC = () => {
   const [editExpectedDelivery, setEditExpectedDelivery] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editOrderDiscount, setEditOrderDiscount] = useState<string>('0');
+  const [editOrderDiscountType, setEditOrderDiscountType] = useState<'money' | 'percent'>('money');
   const [editOrderAdditionalFees, setEditOrderAdditionalFees] = useState<string>('0');
+  const [editSurchargeReason, setEditSurchargeReason] = useState<string>('');
   const [editSelectedItemsForMultiAdd, setEditSelectedItemsForMultiAdd] = useState<Set<string>>(new Set());
   const [editingEditItemIndex, setEditingEditItemIndex] = useState<number | null>(null);
   const [editingEditItemNotes, setEditingEditItemNotes] = useState<string>('');
@@ -1344,9 +1360,13 @@ export const Orders: React.FC = () => {
   };
 
   // Helper function to calculate order total
-  const calculateOrderTotal = (items: ServiceItem[], discount: number = 0, additionalFees: number = 0): number => {
+  const calculateOrderTotal = (items: ServiceItem[], discount: number = 0, discountType: 'money' | 'percent' = 'money', additionalFees: number = 0): number => {
     const subtotal = items.reduce((acc, item) => acc + (item.price * (item.quantity || 1)), 0);
-    const total = subtotal - discount + additionalFees;
+    let discountAmount = discount;
+    if (discountType === 'percent') {
+      discountAmount = (subtotal * discount) / 100;
+    }
+    const total = subtotal - discountAmount + additionalFees;
     return Math.max(0, total); // Ensure total is not negative
   };
 
@@ -1354,10 +1374,10 @@ export const Orders: React.FC = () => {
     if (!selectedCustomerId || newOrderItems.length === 0) return;
 
     const customer = customers.find(c => c.id === selectedCustomerId);
-    const discount = parseFloat(newOrderDiscount) || 0;
-    const additionalFees = parseFloat(newOrderAdditionalFees) || 0;
-    const subtotal = newOrderItems.reduce((acc, item) => acc + (item.price * (item.quantity || 1)), 0);
-    const totalAmount = calculateOrderTotal(newOrderItems, discount, additionalFees);
+    const discount = parseFloat(newOrderDiscount.replace(/\./g, '')) || 0;
+    const additionalFees = parseFloat(newOrderAdditionalFees.replace(/\./g, '')) || 0;
+    const deposit = parseFloat(newOrderDeposit.replace(/\./g, '')) || 0;
+    const totalAmount = calculateOrderTotal(newOrderItems, discount, newOrderDiscountType, additionalFees);
 
     // Tự động gán technician cho item đầu tiên (không phải product)
     const firstServiceItem = newOrderItems.find(item => !item.isProduct);
@@ -1385,13 +1405,15 @@ export const Orders: React.FC = () => {
       customerName: customer?.name || 'Khách lẻ',
       items: itemsWithAssignment, // Không cần tạo ID cho items - database tự tạo
       totalAmount: totalAmount,
-      deposit: 0,
+      deposit: deposit,
       status: OrderStatus.PENDING,
       createdAt: new Date().toLocaleDateString('vi-VN'),
-      expectedDelivery: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('vi-VN'),
+      expectedDelivery: newOrderExpectedDelivery ? new Date(newOrderExpectedDelivery).toLocaleDateString('vi-VN') : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('vi-VN'),
       notes: '',
       discount: discount > 0 ? discount : undefined,
-      additionalFees: additionalFees > 0 ? additionalFees : undefined
+      discountType: newOrderDiscountType,
+      additionalFees: additionalFees > 0 ? additionalFees : undefined,
+      surchargeReason: newOrderSurchargeReason || undefined
     };
 
     addOrder(newOrder);
@@ -1399,8 +1421,12 @@ export const Orders: React.FC = () => {
     setIsModalOpen(false);
     setNewOrderItems([]);
     setSelectedCustomerId('');
-    setNewOrderDiscount('0');
-    setNewOrderAdditionalFees('0');
+    setNewOrderDeposit('');
+    setNewOrderExpectedDelivery(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+    setNewOrderDiscount('');
+    setNewOrderDiscountType('money');
+    setNewOrderAdditionalFees('');
+    setNewOrderSurchargeReason('');
     setSelectedItemsForMultiAdd(new Set());
   };
 
@@ -1543,9 +1569,10 @@ export const Orders: React.FC = () => {
     if (!editingOrder || !editSelectedCustomerId || editOrderItems.length === 0) return;
 
     const customer = customers.find(c => c.id === editSelectedCustomerId);
-    const discount = parseFloat(editOrderDiscount) || 0;
-    const additionalFees = parseFloat(editOrderAdditionalFees) || 0;
-    const totalAmount = calculateOrderTotal(editOrderItems, discount, additionalFees);
+    const discount = parseFloat(editOrderDiscount.replace(/\./g, '')) || 0;
+    const additionalFees = parseFloat(editOrderAdditionalFees.replace(/\./g, '')) || 0;
+    const deposit = parseFloat(editDeposit.replace(/\./g, '')) || 0;
+    const totalAmount = calculateOrderTotal(editOrderItems, discount, editOrderDiscountType, additionalFees);
 
     // Clean items to remove undefined values - PRESERVE original IDs
     const cleanedItems = editOrderItems.map(item => {
@@ -1583,13 +1610,15 @@ export const Orders: React.FC = () => {
       customerName: customer?.name || 'Khách lẻ',
       items: cleanedItems,
       totalAmount: totalAmount,
-      deposit: parseInt(editDeposit) || 0,
+      deposit: deposit,
       status: editingOrder.status,
       createdAt: editingOrder.createdAt,
-      expectedDelivery: editExpectedDelivery,
+      expectedDelivery: editExpectedDelivery, // Already formatted string if needed or handle parsing
       notes: editNotes || '',
       discount: discount > 0 ? discount : undefined,
-      additionalFees: additionalFees > 0 ? additionalFees : undefined
+      discountType: editOrderDiscountType,
+      additionalFees: additionalFees > 0 ? additionalFees : undefined,
+      surchargeReason: editSurchargeReason || undefined
     };
 
     try {
@@ -1603,8 +1632,8 @@ export const Orders: React.FC = () => {
       setEditDeposit('');
       setEditExpectedDelivery('');
       setEditNotes('');
-      setEditOrderDiscount('0');
-      setEditOrderAdditionalFees('0');
+      setEditOrderDiscount('');
+      setEditOrderAdditionalFees('');
       setEditSelectedItemsForMultiAdd(new Set());
     } catch (error: any) {
       console.error('Lỗi khi cập nhật đơn hàng:', error);
@@ -1805,11 +1834,13 @@ export const Orders: React.FC = () => {
                           }
 
                           setEditSelectedCustomerId(customerIdToUse);
-                          setEditDeposit((order.deposit || 0).toString());
-                          setEditExpectedDelivery(order.expectedDelivery || formatDate(order.expectedDelivery) || '');
+                          setEditDeposit(order.deposit ? formatNumber(order.deposit) : '');
+                          setEditExpectedDelivery(order.expectedDelivery ? new Date(order.expectedDelivery).toISOString().split('T')[0] : '');
                           setEditNotes(order.notes || '');
-                          setEditOrderDiscount((order.discount || 0).toString());
-                          setEditOrderAdditionalFees((order.additionalFees || 0).toString());
+                          setEditOrderDiscount(order.discount ? formatNumber(order.discount) : '');
+                          setEditOrderDiscountType(order.discountType || 'money');
+                          setEditOrderAdditionalFees(order.additionalFees ? formatNumber(order.additionalFees) : '');
+                          setEditSurchargeReason(order.surchargeReason || '');
                           setEditSelectedItemsForMultiAdd(new Set());
                           setEditSelectedItemType('SERVICE');
                           setEditSelectedItemId('');
@@ -2016,41 +2047,101 @@ export const Orders: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 bg-neutral-950">
-              <div className="bg-white shadow-lg mx-auto max-w-[210mm] min-h-[297mm] p-8 grid grid-cols-2 gap-8 print:w-full print:shadow-none text-black">
+              <div className="bg-white shadow-lg mx-auto max-w-[210mm] min-h-[297mm] p-8 print:p-4 print:w-full print:shadow-none text-black">
                 {orders.filter(o => selectedOrderIds.has(o.id)).map(order => (
-                  <React.Fragment key={order.id}>
-                    <div className="border-2 border-black p-4 rounded-xl flex items-center gap-6 break-inside-avoid">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${order.id}`}
-                        alt="QR"
-                        className="w-32 h-32"
-                      />
-                      <div className="flex-1">
-                        <div className="text-2xl font-black text-black mb-1">{order.id}</div>
-                        <div className="font-bold text-lg mb-2">{order.customerName}</div>
-                        <div className="text-sm text-slate-600 space-y-1">
-                          <p>Ngày nhận: {formatDate(order.createdAt)}</p>
-                          <p>Hẹn trả: {formatDate(order.expectedDelivery)}</p>
-                          <p className="font-semibold text-black">{order.items.length} Sản phẩm</p>
+                  <div key={order.id} className="break-inside-avoid mb-8 pb-8 border-b-2 border-dashed border-slate-300 last:border-0 last:mb-0 last:pb-0">
+
+                    {/* 1. Main Order Ticket (Phiếu Tiếp Nhận) */}
+                    <div className="border-2 border-black rounded-xl overflow-hidden mb-6">
+                      <div className="bg-black text-white p-2.5 text-center uppercase font-bold tracking-widest border-b-2 border-black text-sm">
+                        Phiếu Tiếp Nhận Dịch Vụ / Service Ticket
+                      </div>
+                      <div className="p-6 flex flex-row gap-6">
+                        {/* Left Info */}
+                        <div className="flex-1 space-y-5">
+                          <div>
+                            <div className="text-[10px] font-mono text-slate-500 uppercase mb-1 tracking-wider">Mã Đơn Hàng / Order ID</div>
+                            <div className="text-5xl font-black tracking-tighter tabular-nums">
+                              #{order.id.slice(0, 8).toUpperCase()}
+                            </div>
+                            <div className="text-[9px] font-mono text-slate-400 mt-1">{order.id}</div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">Khách Hàng / Customer</div>
+                            <div className="text-2xl font-bold line-clamp-1">{order.customerName}</div>
+                            {getCustomerInfo(order.customerId) && (
+                              <div className="text-sm font-medium text-slate-600">{getCustomerInfo(order.customerId)?.phone}</div>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                            <div>
+                              <div className="text-[10px] font-mono text-slate-500 uppercase mb-0.5">Ngày nhận (Received)</div>
+                              <div className="font-bold text-lg">{formatDate(order.createdAt)}</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-mono text-slate-500 uppercase mb-0.5">Hẹn trả (Expected)</div>
+                              <div className="font-bold text-lg">{formatDate(order.expectedDelivery)}</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right QR */}
+                        <div className="flex flex-col items-center justify-center pl-6 border-l border-slate-200 w-48 shrink-0">
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${order.id}`}
+                            alt="Order QR"
+                            className="w-40 h-40 mix-blend-multiply"
+                          />
+                          <div className="text-center mt-2 space-y-1">
+                            <div className="text-[10px] text-slate-500 font-medium">Quét để xem chi tiết</div>
+                            <div className="font-bold text-xs bg-slate-100 px-2 py-1 rounded">{order.items.length} Sản phẩm</div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                    {order.items.map(item => (
-                      <div key={item.id} className="border border-slate-300 p-4 rounded-xl flex items-center gap-4 break-inside-avoid bg-slate-50">
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${item.id}`}
-                          alt="QR"
-                          className="w-20 h-20 mix-blend-multiply"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-mono text-slate-500 mb-0.5">{order.id}</div>
-                          <div className="font-bold text-slate-900 truncate leading-tight">{item.name}</div>
-                          <div className="text-xs text-slate-600 mt-1">{item.type}</div>
-                          <div className="text-[10px] bg-white border border-slate-300 rounded px-1.5 py-0.5 inline-block mt-1 font-mono">{item.id}</div>
+
+                    {/* 2. Item Tags (Tem Sản Phẩm) */}
+                    {order.items.length > 0 && (
+                      <div>
+                        <div className="text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Tem Sản Phẩm ({order.items.length})</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                          {order.items.map((item, idx) => (
+                            <div key={item.id} className="border border-slate-300 rounded-lg p-3 flex gap-3 bg-slate-50/50 relative overflow-hidden break-inside-avoid">
+                              <div className="absolute top-0 right-0 px-1.5 py-0.5 bg-slate-200 rounded-bl text-[9px] font-mono font-bold text-slate-500">
+                                {idx + 1}/{order.items.length}
+                              </div>
+
+                              <img
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${item.id}`}
+                                alt="Item QR"
+                                className="w-16 h-16 mix-blend-multiply bg-white p-1 rounded border border-slate-200 shrink-0 self-center"
+                              />
+
+                              <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                <div className="text-[10px] font-mono text-slate-500 mb-0.5 font-bold">
+                                  #{order.id.slice(0, 8).toUpperCase()}
+                                </div>
+                                <div className="font-bold text-base leading-tight mb-1 line-clamp-2 pr-4">{item.name}</div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium text-slate-600">
+                                    {item.type === 'SERVICE' ? 'Dịch vụ' : 'Sản phẩm'}
+                                  </span>
+                                  {item.id && (
+                                    <span className="text-[9px] font-mono text-slate-400 truncate max-w-[80px]">
+                                      {item.id.split('-')[0]}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    ))}
-                  </React.Fragment>
+                    )}
+
+                  </div>
                 ))}
               </div>
             </div>
@@ -2670,7 +2761,7 @@ export const Orders: React.FC = () => {
                                   const selectorKey = `new-item-${idx}-${stage.id}`;
 
                                   return (
-                                    <div key={stage.id} className="flex items-center justify-between bg-neutral-900/40 p-1.5 rounded border border-neutral-700/50">
+                                    <div className="flex items-center justify-between bg-neutral-900/40 p-1.5 rounded border border-neutral-700/50">
                                       <span className="text-xs text-slate-400">{stage.name}</span>
                                       <div className="relative">
                                         <button
@@ -2739,32 +2830,88 @@ export const Orders: React.FC = () => {
 
                 {/* Discount and Additional Fees */}
                 <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                  {/* Deposit and Expected Delivery */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-slate-300 mb-2">
-                        Khấu trừ (Giảm giá) <span className="text-slate-500 text-xs">VNĐ</span>
+                        Tiền Cọc <span className="text-slate-500 text-xs">VNĐ</span>
                       </label>
                       <input
-                        type="number"
-                        value={newOrderDiscount}
-                        onChange={(e) => setNewOrderDiscount(e.target.value)}
+                        type="text"
+                        value={newOrderDeposit}
+                        onChange={(e) => setNewOrderDeposit(formatNumberInput(e.target.value))}
                         className="w-full p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none"
                         placeholder="0"
-                        min="0"
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-slate-300 mb-2">
-                        Phụ phí phát sinh <span className="text-slate-500 text-xs">VNĐ</span>
+                        Ngày Trả (Dự kiến)
                       </label>
                       <input
-                        type="number"
-                        value={newOrderAdditionalFees}
-                        onChange={(e) => setNewOrderAdditionalFees(e.target.value)}
+                        type="date"
+                        value={newOrderExpectedDelivery}
+                        onChange={(e) => setNewOrderExpectedDelivery(e.target.value)}
                         className="w-full p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none"
-                        placeholder="0"
-                        min="0"
                       />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-300 mb-2 flex justify-between">
+                        <span>Khấu trừ (Giảm giá)</span>
+                        <div className="flex gap-1 bg-neutral-700 rounded p-0.5">
+                          <button
+                            onClick={() => setNewOrderDiscountType('money')}
+                            className={`px-2 py-0.5 text-xs rounded ${newOrderDiscountType === 'money' ? 'bg-gold-500 text-black font-bold' : 'text-slate-400'}`}
+                          >VNĐ</button>
+                          <button
+                            onClick={() => setNewOrderDiscountType('percent')}
+                            className={`px-2 py-0.5 text-xs rounded ${newOrderDiscountType === 'percent' ? 'bg-gold-500 text-black font-bold' : 'text-slate-400'}`}
+                          >%</button>
+                        </div>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={newOrderDiscount}
+                          onChange={(e) => setNewOrderDiscount(formatNumberInput(e.target.value))}
+                          className="w-full p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none"
+                          placeholder="0"
+                        />
+                        {newOrderDiscountType === 'percent' && (
+                          <div className="absolute right-3 top-2.5 text-slate-500 text-sm font-mono">
+                            = {formatPrice((newOrderItems.reduce((acc, i) => acc + (i.price * (i.quantity || 1)), 0) * (parseFloat(newOrderDiscount.replace(/\./g, '')) || 0)) / 100)} ₫
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex gap-2 mb-2">
+                        <label className="w-1/3 text-sm font-bold text-slate-300">
+                          Phụ phí
+                        </label>
+                        <label className="flex-1 text-sm font-bold text-slate-300">
+                          Lý do
+                        </label>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newOrderAdditionalFees}
+                          onChange={(e) => setNewOrderAdditionalFees(formatNumberInput(e.target.value))}
+                          className="w-1/3 p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none text-right"
+                          placeholder="0"
+                        />
+                        <input
+                          type="text"
+                          value={newOrderSurchargeReason}
+                          onChange={(e) => setNewOrderSurchargeReason(e.target.value)}
+                          className="flex-1 p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none text-sm"
+                          placeholder="Lý do..."
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -2778,21 +2925,31 @@ export const Orders: React.FC = () => {
                       </div>
                       {parseFloat(newOrderDiscount) > 0 && (
                         <div className="flex justify-between text-emerald-400">
-                          <span>Khấu trừ:</span>
-                          <span>-{formatPrice(parseFloat(newOrderDiscount) || 0)} ₫</span>
+                          <span>Khấu trừ ({newOrderDiscountType === 'percent' ? `${newOrderDiscount}%` : `${formatPrice(newOrderDiscount.replace(/\./g, ''))} ₫`}):</span>
+                          <span>-{formatPrice(newOrderDiscountType === 'percent' ? (newOrderItems.reduce((acc, i) => acc + (i.price * (i.quantity || 1)), 0) * (parseFloat(newOrderDiscount.replace(/\./g, '')) || 0)) / 100 : (parseFloat(newOrderDiscount.replace(/\./g, '')) || 0))} ₫</span>
                         </div>
                       )}
-                      {parseFloat(newOrderAdditionalFees) > 0 && (
+                      {parseFloat(newOrderAdditionalFees.replace(/\./g, '')) > 0 && (
                         <div className="flex justify-between text-blue-400">
-                          <span>Phụ phí phát sinh:</span>
-                          <span>+{formatPrice(parseFloat(newOrderAdditionalFees) || 0)} ₫</span>
+                          <span>Phụ phí {newOrderSurchargeReason ? `(${newOrderSurchargeReason})` : ''}:</span>
+                          <span>+{formatPrice(parseFloat(newOrderAdditionalFees.replace(/\./g, '')) || 0)} ₫</span>
                         </div>
                       )}
                       <div className="pt-2 border-t border-neutral-700 flex justify-between font-bold text-lg">
                         <span className="text-slate-200">Tổng cộng:</span>
                         <span className="text-gold-500">
-                          {formatPrice(calculateOrderTotal(newOrderItems, parseFloat(newOrderDiscount) || 0, parseFloat(newOrderAdditionalFees) || 0))} ₫
+                          {formatPrice(calculateOrderTotal(newOrderItems, parseFloat(newOrderDiscount.replace(/\./g, '')) || 0, newOrderDiscountType, parseFloat(newOrderAdditionalFees.replace(/\./g, '')) || 0))} ₫
                         </span>
+                      </div>
+                      {parseFloat(newOrderDeposit.replace(/\./g, '')) > 0 && (
+                        <div className="flex justify-between text-gold-600/80 text-sm mt-1">
+                          <span>Đã cọc:</span>
+                          <span>-{newOrderDeposit} ₫</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-bold text-red-500 pt-1 text-sm">
+                        <span>Còn lại:</span>
+                        <span>{formatPrice(calculateOrderTotal(newOrderItems, parseFloat(newOrderDiscount.replace(/\./g, '')) || 0, newOrderDiscountType, parseFloat(newOrderAdditionalFees.replace(/\./g, '')) || 0) - (parseFloat(newOrderDeposit.replace(/\./g, '')) || 0))} ₫</span>
                       </div>
                     </div>
                   </div>
@@ -3080,9 +3237,9 @@ export const Orders: React.FC = () => {
                     <div>
                       <label className="block text-sm font-bold text-slate-300 mb-2">Tiền Cọc</label>
                       <input
-                        type="number"
+                        type="text"
                         value={editDeposit}
-                        onChange={(e) => setEditDeposit(e.target.value)}
+                        onChange={(e) => setEditDeposit(formatNumberInput(e.target.value))}
                         className="w-full p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none"
                         placeholder="0"
                       />
@@ -3090,70 +3247,110 @@ export const Orders: React.FC = () => {
                     <div>
                       <label className="block text-sm font-bold text-slate-300 mb-2">Ngày Trả Dự Kiến</label>
                       <input
-                        type="text"
+                        type="date"
                         value={editExpectedDelivery}
                         onChange={(e) => setEditExpectedDelivery(e.target.value)}
                         className="w-full p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none"
-                        placeholder="dd/mm/yyyy"
                       />
                     </div>
                   </div>
 
                   {/* Discount and Additional Fees for Edit */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-slate-300 mb-2">
-                        Khấu trừ (Giảm giá) <span className="text-slate-500 text-xs">VNĐ</span>
-                      </label>
-                      <input
-                        type="number"
-                        value={editOrderDiscount}
-                        onChange={(e) => setEditOrderDiscount(e.target.value)}
-                        className="w-full p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none"
-                        placeholder="0"
-                        min="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-slate-300 mb-2">
-                        Phụ phí phát sinh <span className="text-slate-500 text-xs">VNĐ</span>
-                      </label>
-                      <input
-                        type="number"
-                        value={editOrderAdditionalFees}
-                        onChange={(e) => setEditOrderAdditionalFees(e.target.value)}
-                        className="w-full p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none"
-                        placeholder="0"
-                        min="0"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Invoice Summary for Edit */}
-                  <div className="bg-neutral-800/50 p-4 rounded-lg border border-neutral-700">
-                    <h4 className="text-sm font-semibold text-slate-300 mb-3">Tổng Hóa Đơn</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between text-slate-400">
-                        <span>Tạm tính ({editOrderItems.length} mục):</span>
-                        <span>{formatPrice(editOrderItems.reduce((acc, i) => acc + (i.price * (i.quantity || 1)), 0))} ₫</span>
+                  <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-300 mb-2 flex justify-between">
+                          <span>Khấu trừ (Giảm giá)</span>
+                          <div className="flex gap-1 bg-neutral-700 rounded p-0.5">
+                            <button
+                              onClick={() => setEditOrderDiscountType('money')}
+                              className={`px-2 py-0.5 text-xs rounded ${editOrderDiscountType === 'money' ? 'bg-gold-500 text-black font-bold' : 'text-slate-400'}`}
+                            >VNĐ</button>
+                            <button
+                              onClick={() => setEditOrderDiscountType('percent')}
+                              className={`px-2 py-0.5 text-xs rounded ${editOrderDiscountType === 'percent' ? 'bg-gold-500 text-black font-bold' : 'text-slate-400'}`}
+                            >%</button>
+                          </div>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={editOrderDiscount}
+                            onChange={(e) => setEditOrderDiscount(formatNumberInput(e.target.value))}
+                            className="w-full p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none"
+                            placeholder="0"
+                          />
+                          {editOrderDiscountType === 'percent' && (
+                            <div className="absolute right-3 top-2.5 text-slate-500 text-sm font-mono">
+                              = {formatPrice((editOrderItems.reduce((acc, i) => acc + (i.price * (i.quantity || 1)), 0) * (parseFloat(editOrderDiscount.replace(/\./g, '')) || 0)) / 100)} ₫
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      {parseFloat(editOrderDiscount) > 0 && (
-                        <div className="flex justify-between text-emerald-400">
-                          <span>Khấu trừ:</span>
-                          <span>-{formatPrice(parseFloat(editOrderDiscount) || 0)} ₫</span>
+                      <div>
+                        <div className="flex gap-2 mb-2">
+                          <label className="w-1/3 text-sm font-bold text-slate-300">
+                            Phụ phí
+                          </label>
+                          <label className="flex-1 text-sm font-bold text-slate-300">
+                            Lý do
+                          </label>
                         </div>
-                      )}
-                      {parseFloat(editOrderAdditionalFees) > 0 && (
-                        <div className="flex justify-between text-blue-400">
-                          <span>Phụ phí phát sinh:</span>
-                          <span>+{formatPrice(parseFloat(editOrderAdditionalFees) || 0)} ₫</span>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={editOrderAdditionalFees}
+                            onChange={(e) => setEditOrderAdditionalFees(formatNumberInput(e.target.value))}
+                            className="w-1/3 p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none text-right"
+                            placeholder="0"
+                          />
+                          <input
+                            type="text"
+                            value={editSurchargeReason}
+                            onChange={(e) => setEditSurchargeReason(e.target.value)}
+                            className="flex-1 p-2.5 bg-neutral-800 border border-neutral-700 rounded-lg text-slate-200 focus:ring-1 focus:ring-gold-500 outline-none text-sm"
+                            placeholder="Lý do..."
+                          />
                         </div>
-                      )}
-                      <div className="pt-2 border-t border-neutral-700 flex justify-between font-bold text-lg">
-                        <span className="text-slate-200">Tổng cộng:</span>
-                        <span className="text-gold-500">
-                          {formatPrice(calculateOrderTotal(editOrderItems, parseFloat(editOrderDiscount) || 0, parseFloat(editOrderAdditionalFees) || 0))} ₫
-                        </span>
+                      </div>
+                    </div>
+
+                    {/* Invoice Summary for Edit */}
+                    <div className="bg-neutral-800/50 p-4 rounded-lg border border-neutral-700">
+                      <h4 className="text-sm font-semibold text-slate-300 mb-3">Tổng Hóa Đơn</h4>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between text-slate-400">
+                          <span>Tạm tính ({editOrderItems.length} mục):</span>
+                          <span>{formatPrice(editOrderItems.reduce((acc, i) => acc + (i.price * (i.quantity || 1)), 0))} ₫</span>
+                        </div>
+                        {parseFloat(editOrderDiscount) > 0 && (
+                          <div className="flex justify-between text-emerald-400">
+                            <span>Khấu trừ ({editOrderDiscountType === 'percent' ? `${editOrderDiscount}%` : `${formatPrice(editOrderDiscount.replace(/\./g, ''))} ₫`}):</span>
+                            <span>-{formatPrice(editOrderDiscountType === 'percent' ? (editOrderItems.reduce((acc, i) => acc + (i.price * (i.quantity || 1)), 0) * (parseFloat(editOrderDiscount.replace(/\./g, '')) || 0)) / 100 : (parseFloat(editOrderDiscount.replace(/\./g, '')) || 0))} ₫</span>
+                          </div>
+                        )}
+                        {parseFloat(editOrderAdditionalFees.replace(/\./g, '')) > 0 && (
+                          <div className="flex justify-between text-blue-400">
+                            <span>Phụ phí {editSurchargeReason ? `(${editSurchargeReason})` : ''}:</span>
+                            <span>+{formatPrice(parseFloat(editOrderAdditionalFees.replace(/\./g, '')) || 0)} ₫</span>
+                          </div>
+                        )}
+                        <div className="pt-2 border-t border-neutral-700 flex justify-between font-bold text-lg">
+                          <span className="text-slate-200">Tổng cộng:</span>
+                          <span className="text-gold-500">
+                            {formatPrice(calculateOrderTotal(editOrderItems, parseFloat(editOrderDiscount.replace(/\./g, '')) || 0, editOrderDiscountType, parseFloat(editOrderAdditionalFees.replace(/\./g, '')) || 0))} ₫
+                          </span>
+                        </div>
+                        {parseFloat(editDeposit.replace(/\./g, '')) > 0 && (
+                          <div className="flex justify-between text-gold-600/80 text-sm mt-1">
+                            <span>Đã cọc:</span>
+                            <span>-{editDeposit} ₫</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-bold text-red-500 pt-1 text-sm">
+                          <span>Còn lại:</span>
+                          <span>{formatPrice(calculateOrderTotal(editOrderItems, parseFloat(editOrderDiscount) || 0, editOrderDiscountType, parseFloat(editOrderAdditionalFees) || 0) - (parseFloat(editDeposit.replace(/\./g, '')) || 0))} ₫</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3192,7 +3389,7 @@ export const Orders: React.FC = () => {
       {/* Edit Item Modal (for notes and assigned members) */}
       {
         (editingItemIndex !== null || editingEditItemIndex !== null) && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
             <div className="bg-neutral-900 rounded-xl w-full max-w-md shadow-2xl border border-neutral-800 animate-in zoom-in-95 duration-200">
               <div className="p-6 border-b border-neutral-800">
                 <h2 className="text-xl font-serif font-bold text-slate-100">Thêm Ghi Chú & Nhân Sự</h2>

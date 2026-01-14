@@ -92,7 +92,9 @@ export interface Order {
   expectedDelivery: string;
   notes?: string;
   discount?: number; // Khấu trừ (giảm giá)
+  discountType?: 'money' | 'percent'; // Loại giảm giá
   additionalFees?: number; // Phụ phí phát sinh
+  surchargeReason?: string; // Lý do phụ phí
 }
 
 export interface CRMTask {

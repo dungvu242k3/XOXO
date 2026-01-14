@@ -171,8 +171,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: vnOrder.ngay_tao || vnOrder.createdAt || new Date().toLocaleDateString('vi-VN'),
       expectedDelivery: vnOrder.ngay_du_kien_giao || vnOrder.ngay_giao_du_kien || vnOrder.expectedDelivery || '',
       notes: vnOrder.ghi_chu || vnOrder.notes,
-      discount: vnOrder.giam_gia || vnOrder.discount || undefined,
-      additionalFees: vnOrder.phi_phat_sinh || vnOrder.additionalFees || undefined
+      discount: vnOrder.giam_gia || vnOrder.discount || 0,
+      discountType: vnOrder.loai_giam_gia || 'money',
+      additionalFees: vnOrder.phi_phat_sinh || vnOrder.additionalFees || 0,
+      surchargeReason: vnOrder.ly_do_phu_phi || ''
     };
   };
 
@@ -473,7 +475,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.log('📡 Querying orders from:', DB_TABLES.ORDERS);
       const ordersResult = await supabase
         .from(DB_TABLES.ORDERS)
-        .select('id, id_khach_hang, ten_khach_hang, tong_tien, tien_coc, trang_thai, ngay_du_kien_giao, ghi_chu, ngay_tao')
+        .select('id, id_khach_hang, ten_khach_hang, tong_tien, tien_coc, trang_thai, ngay_du_kien_giao, ghi_chu, ngay_tao, giam_gia, phi_phat_sinh, loai_giam_gia, ly_do_phu_phi')
         .order('ngay_tao', { ascending: false })
         .limit(100);
 
@@ -912,7 +914,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         tien_coc: newOrder.deposit || 0,
         trang_thai: mapOrderStatusDisplayToDb(newOrder.status),
         ngay_du_kien_giao: formatDateForDB(newOrder.expectedDelivery),
-        ghi_chu: newOrder.notes || ''
+        ghi_chu: newOrder.notes || '',
+        giam_gia: newOrder.discount || 0,
+        loai_giam_gia: newOrder.discountType || 'money',
+        phi_phat_sinh: newOrder.additionalFees || 0,
+        ly_do_phu_phi: newOrder.surchargeReason || ''
       };
 
       // Insert order và lấy FULL data ngay
@@ -1083,7 +1089,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         tien_coc: updatedOrder.deposit || 0,
         trang_thai: mapOrderStatusDisplayToDb(updatedOrder.status),
         ngay_du_kien_giao: formatDateForDB(updatedOrder.expectedDelivery),
-        ghi_chu: updatedOrder.notes || ''
+        ghi_chu: updatedOrder.notes || '',
+        giam_gia: updatedOrder.discount || 0,
+        loai_giam_gia: updatedOrder.discountType || 'money',
+        phi_phat_sinh: updatedOrder.additionalFees || 0,
+        ly_do_phu_phi: updatedOrder.surchargeReason || ''
       };
 
       // Add discount and additionalFees if they exist (may not be in schema yet)
