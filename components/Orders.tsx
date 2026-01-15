@@ -729,6 +729,17 @@ export const Orders: React.FC = () => {
       return true;
     });
 
+    // Sort by Urgency: Overdue/Soonest -> Latest -> No Date
+    filtered.sort((a, b) => {
+      if (!a.expectedDelivery && !b.expectedDelivery) return 0;
+      if (!a.expectedDelivery) return 1; // No date -> Bottom
+      if (!b.expectedDelivery) return -1; // No date -> Bottom
+
+      const timeA = new Date(a.expectedDelivery).getTime();
+      const timeB = new Date(b.expectedDelivery).getTime();
+      return timeA - timeB;
+    });
+
     console.log('🔍 Filtered orders:', {
       totalOrders: orders.length,
       filteredCount: filtered.length,
@@ -1964,7 +1975,36 @@ export const Orders: React.FC = () => {
                         {order.status}
                       </span>
                     </td>
-                    <td className="p-4 text-sm text-slate-400 hidden md:table-cell">{formatDate(order.expectedDelivery)}</td>
+                    <td className="p-4 text-sm hidden md:table-cell">
+                      {(() => {
+                        if (!order.expectedDelivery) return <span className="text-slate-400">-</span>;
+
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const delivery = new Date(order.expectedDelivery);
+                        delivery.setHours(0, 0, 0, 0);
+                        const diffTime = delivery.getTime() - today.getTime();
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                        // < 3 days or Overdue -> Blink Red
+                        if (diffDays < 3) {
+                          return (
+                            <div className="flex items-center gap-2">
+                              <span className="text-red-500 font-bold animate-pulse">
+                                {formatDate(order.expectedDelivery)}
+                              </span>
+                              {diffDays < 0 ? (
+                                <span className="text-[10px] bg-red-900/30 text-red-500 px-1.5 py-0.5 rounded border border-red-900/50">Quá hạn</span>
+                              ) : (
+                                <span className="text-[10px] bg-red-900/30 text-red-500 px-1.5 py-0.5 rounded border border-red-900/50">Gấp</span>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return <span className="text-slate-400">{formatDate(order.expectedDelivery)}</span>;
+                      })()}
+                    </td>
                     <td className="p-4 sticky right-0 bg-neutral-900/95 backdrop-blur-sm group-hover:bg-neutral-800 transition-colors z-20">
                       <ActionMenu
                         itemName={order.id}
@@ -2138,7 +2178,25 @@ export const Orders: React.FC = () => {
                         {selectedOrder.expectedDelivery && (
                           <div>
                             <label className="text-xs text-slate-500">Ngày hẹn trả</label>
-                            <p className="font-medium text-gold-500">{formatDate(selectedOrder.expectedDelivery)}</p>
+                            <p className="font-medium text-gold-500">
+                              {formatDate(selectedOrder.expectedDelivery)}
+                              {(() => {
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                const deliveryDate = new Date(selectedOrder.expectedDelivery);
+                                deliveryDate.setHours(0, 0, 0, 0);
+                                const diffTime = deliveryDate.getTime() - today.getTime();
+                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                if (diffDays < 0) {
+                                  return <span className="text-red-500 text-xs ml-2 font-bold">(Quá {Math.abs(diffDays)} ngày)</span>;
+                                } else if (diffDays === 0) {
+                                  return <span className="text-blue-400 text-xs ml-2 font-bold">(Hôm nay)</span>;
+                                } else {
+                                  return <span className="text-emerald-500 text-xs ml-2 font-bold">(Còn {diffDays} ngày)</span>;
+                                }
+                              })()}
+                            </p>
                           </div>
                         )}
                         {selectedOrder.notes && (
