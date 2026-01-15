@@ -191,12 +191,19 @@ const getDepartment = (role: Member['role']): string => {
 };
 
 export const Members: React.FC = () => {
-  const { members, updateMember, deleteMember, addMember } = useAppStore();
+  const { members, updateMember, deleteMember, addMember, orders } = useAppStore();
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'Active' | 'Off'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [viewingMember, setViewingMember] = useState<Member | null>(null);
+
+  // Helper function to format price
+  const formatPrice = (price: number) => {
+    return price.toLocaleString('vi-VN');
+  };
   const [newMember, setNewMember] = useState({
     name: '',
     role: 'Tư vấn viên' as Member['role'],
@@ -304,6 +311,50 @@ export const Members: React.FC = () => {
     return grouped;
   }, [members, searchText, statusFilter]);
 
+  // Calculate orders and commission for viewing member
+  const memberOrdersAndCommission = useMemo(() => {
+    if (!viewingMember || !orders) {
+      return { orders: [], totalCommission: 0 };
+    }
+
+    const memberId = viewingMember.id;
+
+    // Find orders where this member is assigned or has commission
+    const memberOrders = orders.filter(order =>
+      order.items?.some(item =>
+        item.assignedMembers?.includes(memberId) ||
+        (item.commissions && item.commissions[memberId])
+      )
+    );
+
+    // Calculate commission per order
+    const ordersWithCommission = memberOrders.map(order => {
+      const commission = order.items.reduce((sum, item) => {
+        const comm = item.commissions?.[memberId];
+        if (comm) {
+          return sum + (comm.value || 0);
+        }
+        return sum;
+      }, 0);
+
+      // Get items this member is assigned to
+      const assignedItems = order.items.filter(item =>
+        item.assignedMembers?.includes(memberId) ||
+        (item.commissions && item.commissions[memberId])
+      );
+
+      return {
+        ...order,
+        memberCommission: commission,
+        assignedItems
+      };
+    });
+
+    const totalCommission = ordersWithCommission.reduce((sum, o) => sum + o.memberCommission, 0);
+
+    return { orders: ordersWithCommission, totalCommission };
+  }, [viewingMember, orders]);
+
   const handleAddMember = async () => {
     if (!newMember.name || !newMember.phone) {
       alert('Vui lòng điền đầy đủ thông tin bắt buộc (Tên, SĐT)!');
@@ -402,6 +453,123 @@ export const Members: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Modal Xem Chi Tiết Nhân Sự */}
+      {showViewModal && viewingMember && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-neutral-900 rounded-xl shadow-2xl border border-neutral-800 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="bg-neutral-900 border-b border-neutral-800 p-6 flex justify-between items-start shrink-0">
+              <div className="flex items-center gap-4">
+                {viewingMember.avatar ? (
+                  <img
+                    src={viewingMember.avatar}
+                    alt={viewingMember.name}
+                    className="w-16 h-16 rounded-full object-cover border-2 border-gold-600"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-gold-600 to-gold-800 flex items-center justify-center text-2xl font-bold text-black">
+                    {viewingMember.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <h2 className="text-xl font-serif font-bold text-slate-100">{viewingMember.name}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${getRoleColor(viewingMember.role)}`}>
+                      <Briefcase size={10} />
+                      {viewingMember.role}
+                    </span>
+                    <span className="text-slate-500 text-sm">{viewingMember.department || getDepartment(viewingMember.role)}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowViewModal(false); setViewingMember(null); }}
+                className="text-slate-500 hover:text-slate-300 transition-colors p-2 hover:bg-neutral-800 rounded-lg"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Commission Summary Card */}
+            <div className="px-6 py-4 bg-gradient-to-r from-gold-900/20 to-neutral-900 border-b border-neutral-800 shrink-0">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-400">Tổng Hoa Hồng</p>
+                  <h3 className="text-3xl font-bold text-gold-400">{formatPrice(memberOrdersAndCommission.totalCommission)} ₫</h3>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-slate-400">Số đơn phụ trách</p>
+                  <h3 className="text-2xl font-bold text-slate-100">{memberOrdersAndCommission.orders.length}</h3>
+                </div>
+              </div>
+            </div>
+
+            {/* Orders Table */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {memberOrdersAndCommission.orders.length > 0 ? (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">Đơn hàng phụ trách</h3>
+                  <table className="w-full text-sm">
+                    <thead className="bg-neutral-800/50 sticky top-0">
+                      <tr className="text-left text-xs uppercase text-slate-500 tracking-wider">
+                        <th className="px-4 py-3 rounded-l-lg">Mã đơn</th>
+                        <th className="px-4 py-3">Khách hàng</th>
+                        <th className="px-4 py-3">Dịch vụ phụ trách</th>
+                        <th className="px-4 py-3 text-right">Hoa hồng</th>
+                        <th className="px-4 py-3 rounded-r-lg text-right">Ngày</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-800">
+                      {memberOrdersAndCommission.orders.map((order: any) => (
+                        <tr key={order.id} className="hover:bg-neutral-800/30 transition-colors">
+                          <td className="px-4 py-3">
+                            <span className="font-mono text-gold-500">#{order.id.slice(0, 8).toUpperCase()}</span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-300">{order.customerName}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              {order.assignedItems.map((item: any, idx: number) => (
+                                <span key={idx} className="px-2 py-0.5 bg-neutral-800 rounded text-xs text-slate-400 truncate max-w-[150px]">
+                                  {item.name}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className={`font-medium ${order.memberCommission > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                              {order.memberCommission > 0 ? `+${formatPrice(order.memberCommission)} ₫` : '0 ₫'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-500">
+                            {new Date(order.createdAt).toLocaleDateString('vi-VN')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Users size={48} className="mx-auto text-slate-700 mb-4" />
+                  <p className="text-slate-500">Chưa có đơn hàng nào được gán cho nhân viên này</p>
+                  <p className="text-slate-600 text-sm mt-2">Gán nhân viên vào đơn hàng để xem hoa hồng</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-neutral-900 border-t border-neutral-800 p-4 flex justify-end shrink-0">
+              <button
+                onClick={() => { setShowViewModal(false); setViewingMember(null); }}
+                className="px-6 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-slate-300 rounded-lg transition-colors"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Thêm Nhân Sự */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -856,7 +1024,10 @@ export const Members: React.FC = () => {
                       </div>
                       <ActionMenu
                         itemName={member.name}
-                        onView={() => alert(`Xem chi tiết nhân viên: ${member.name}\n\nID: ${member.id}\nVai trò: ${member.role}\nPhòng ban: ${member.department || getDepartment(member.role)}\nSĐT: ${member.phone}\nEmail: ${member.email}\nTrạng thái: ${member.status === 'Active' ? 'Đang làm việc' : 'Nghỉ việc'}\nChuyên môn: ${member.specialty || 'Không có'}`)}
+                        onView={() => {
+                          setViewingMember(member);
+                          setShowViewModal(true);
+                        }}
                         onEdit={() => {
                           setEditingMember({ ...member });
                           setShowEditModal(true);
