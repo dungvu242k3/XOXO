@@ -259,6 +259,11 @@ const WorkflowStagesTasksView: React.FC<{
 
   // Load task assignments from database - with caching
   useEffect(() => {
+    // Prevent 406 error: Don't query if item.id is empty or missing
+    if (!item.id || item.id === '' || item.id.trim() === '') {
+      return;
+    }
+
     // Check cache first
     if (assignmentsCacheRef.current[item.id]) {
       setTaskAssignments(assignmentsCacheRef.current[item.id]);
@@ -1993,6 +1998,10 @@ export const Orders: React.FC = () => {
                                 members={members || []}
                                 onUpdateTaskAssignment={async (taskId: string, assignedTo: string[]) => {
                                   try {
+                                    if (!item.id || !selectedOrder?.id) {
+                                      console.warn('⚠️ View Order: Skipped task assignment update - missing item.id or order.id');
+                                      return;
+                                    }
                                     await handleUpdateTaskAssignment(item.id, selectedOrder?.id || '', taskId, assignedTo);
                                   } catch (error) {
                                     alert('Lỗi khi cập nhật phân công: ' + (error as Error).message);
@@ -2175,7 +2184,7 @@ export const Orders: React.FC = () => {
                   }
                   @page {
                     size: A4;
-                    margin: 10mm;
+                    margin: 0;
                   }
                 }
               `}</style>
@@ -2276,7 +2285,7 @@ export const Orders: React.FC = () => {
                         )}
                       </>
                     ) : (
-                      <div className="p-8">
+                      <div className="p-8 font-bold text-black">
                         {/* INVOICE LAYOUT */}
                         <div className="text-center mb-8">
                           <h1 className="text-3xl font-black uppercase mb-1 tracking-widest">Hóa Đơn Thanh Toán</h1>
@@ -2285,9 +2294,11 @@ export const Orders: React.FC = () => {
 
                         <div className="flex justify-between mb-8">
                           <div>
-                            <div className="font-bold text-lg mb-1">{order.customerName}</div>
-                            <div className="text-sm text-slate-500">{getCustomerInfo(order.customerId)?.phone}</div>
-                            <div className="text-sm text-slate-500">{getCustomerInfo(order.customerId)?.address}</div>
+                            <div className="font-bold text-lg mb-1"><span className="text-slate-600 text-sm">Họ tên: </span>{order.customerName}</div>
+                            <div className="text-sm font-bold"><span className="text-slate-600">SĐT: </span>{getCustomerInfo(order.customerId)?.phone || 'N/A'}</div>
+                            {getCustomerInfo(order.customerId)?.address && (
+                              <div className="text-sm font-bold"><span className="text-slate-600">Địa chỉ: </span>{getCustomerInfo(order.customerId)?.address}</div>
+                            )}
                           </div>
                           <div className="text-right">
                             <div className="text-sm text-slate-500">Mã đơn: <span className="font-mono font-bold text-black">#{order.id.slice(0, 8).toUpperCase()}</span></div>
@@ -2295,22 +2306,22 @@ export const Orders: React.FC = () => {
                           </div>
                         </div>
 
-                        <table className="w-full text-sm mb-8">
+                        <table className="w-full text-sm mb-8 border-2 border-black">
                           <thead>
-                            <tr className="border-b-2 border-black text-xs font-bold uppercase tracking-wider">
-                              <th className="text-left py-2">Dịch vụ</th>
-                              <th className="text-right py-2 w-16">SL</th>
-                              <th className="text-right py-2 w-32">Đơn giá</th>
-                              <th className="text-right py-2 w-32">Thành tiền</th>
+                            <tr className="border-b-2 border-black text-xs font-bold uppercase tracking-wider bg-slate-100">
+                              <th className="text-left py-2 px-3 border-r border-black">Dịch vụ</th>
+                              <th className="text-center py-2 px-2 w-16 border-r border-black">SL</th>
+                              <th className="text-right py-2 px-3 w-32 border-r border-black">Đơn giá</th>
+                              <th className="text-right py-2 px-3 w-32">Thành tiền</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200">
+                          <tbody>
                             {order.items.map((item, i) => (
-                              <tr key={i}>
-                                <td className="py-3 font-medium">{item.name}</td>
-                                <td className="py-3 text-right text-slate-600">{item.quantity || 1}</td>
-                                <td className="py-3 text-right text-slate-600">{formatPrice(item.price)}</td>
-                                <td className="py-3 text-right font-bold">{formatPrice(item.price * (item.quantity || 1))}</td>
+                              <tr key={i} className="border-b border-slate-300">
+                                <td className="py-3 px-3 border-r border-slate-300">{item.name}</td>
+                                <td className="py-3 px-2 text-center border-r border-slate-300">{item.quantity || 1}</td>
+                                <td className="py-3 px-3 text-right border-r border-slate-300">{formatPrice(item.price)}</td>
+                                <td className="py-3 px-3 text-right">{formatPrice(item.price * (item.quantity || 1))}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -2319,7 +2330,7 @@ export const Orders: React.FC = () => {
                         <div className="flex justify-end mb-12">
                           <div className="w-80 space-y-2">
                             <div className="flex justify-between text-sm">
-                              <span className="text-slate-500">Tổng tiền hàng</span>
+                              <span>Tổng tiền hàng</span>
                               <span className="font-medium">{formatPrice((order.items || []).reduce((s, x) => s + (x.price * (x.quantity || 1)), 0))} ₫</span>
                             </div>
                             {(order.discount || 0) > 0 && (() => {
@@ -2329,14 +2340,14 @@ export const Orders: React.FC = () => {
                                 : (order.discount || 0);
                               return (
                                 <div className="flex justify-between text-sm">
-                                  <span className="text-slate-500">Giảm giá {order.discountType === 'percent' ? `(${order.discount}%)` : ''}</span>
+                                  <span>Giảm giá {order.discountType === 'percent' ? `(${order.discount}%)` : ''}</span>
                                   <span className="font-medium">-{formatPrice(discountAmount)} ₫</span>
                                 </div>
                               );
                             })()}
                             {(order.additionalFees || 0) > 0 && (
                               <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Phụ phí</span>
+                                <span>Phụ phí</span>
                                 <span className="font-medium">+{formatPrice(order.additionalFees)} ₫</span>
                               </div>
                             )}
@@ -2345,12 +2356,12 @@ export const Orders: React.FC = () => {
                               <span className="whitespace-nowrap">{formatPrice(order.totalAmount)} ₫</span>
                             </div>
                             <div className="flex justify-between text-sm pt-1">
-                              <span className="text-slate-500">Đã thanh toán (Cọc)</span>
+                              <span>Đã thanh toán (Cọc)</span>
                               <span className="font-medium">{formatPrice(order.deposit || 0)} ₫</span>
                             </div>
                             <div className="flex justify-between text-sm font-bold pt-1">
-                              <span className="text-slate-900">CÒN LẠI</span>
-                              <span className="text-red-600">{formatPrice(order.totalAmount - (order.deposit || 0))} ₫</span>
+                              <span>CÒN LẠI</span>
+                              <span className="text-red-700">{formatPrice(order.totalAmount - (order.deposit || 0))} ₫</span>
                             </div>
                           </div>
                         </div>
@@ -3619,8 +3630,8 @@ export const Orders: React.FC = () => {
                               workflows={workflows}
                               members={members || []}
                               onUpdateTaskAssignment={async (taskId: string, assignedTo: string[]) => {
-                                // Prevent 406 error for new items (no ID)
-                                if (!item.id) {
+                                // Prevent 406 error for new items (no ID or empty ID)
+                                if (!item.id || item.id === '' || item.id.trim() === '') {
                                   const newItems = [...editOrderItems];
                                   const currentItem = newItems[idx] as any;
                                   const currentAssignments = (currentItem.phan_cong_tasks || []) as Array<{ taskId: string; assignedTo: string[]; completed: boolean }>;

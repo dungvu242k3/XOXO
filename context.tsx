@@ -1126,6 +1126,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             la_san_pham: item.isProduct || false
           };
 
+          // CRITICAL: Include item.id for upsert to work correctly
+          // Only include id if it exists and is not empty (for existing items)
+          if (item.id && item.id.trim() !== '') {
+            itemData.id = item.id;
+          }
+
           // Chỉ thêm optional fields nếu có giá trị
           if (item.technicianId) itemData.id_ky_thuat_vien = item.technicianId;
           if (item.beforeImage) itemData.anh_truoc = item.beforeImage;
@@ -1192,13 +1198,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             }
           });
         }
+        // Separate items into existing (with valid ID) and new (without ID)
+        const itemsToUpdate = itemsToUpsert.filter(item => item.id && item.id.trim() !== '');
+        const itemsToInsert = itemsToUpsert.filter(item => !item.id || item.id.trim() === '').map(item => {
+          // Remove the id field for new items - let DB auto-generate
+          const { id, ...itemWithoutId } = item;
+          return itemWithoutId;
+        });
 
-        // Upsert (insert or update) tất cả items cùng lúc
-        const { error: itemsError } = await supabase
-          .from(DB_TABLES.SERVICE_ITEMS)
-          .upsert(itemsToUpsert, { onConflict: 'id' });
+        // Update existing items (upsert with conflict on id)
+        if (itemsToUpdate.length > 0) {
+          const { error: updateError } = await supabase
+            .from(DB_TABLES.SERVICE_ITEMS)
+            .upsert(itemsToUpdate, { onConflict: 'id' });
 
-        if (itemsError) throw itemsError;
+          if (updateError) throw updateError;
+        }
+
+        // Insert new items (let DB generate ID)
+        if (itemsToInsert.length > 0) {
+          const { error: insertError } = await supabase
+            .from(DB_TABLES.SERVICE_ITEMS)
+            .insert(itemsToInsert);
+
+          if (insertError) throw insertError;
+        }
 
         // Xóa items không còn trong danh sách
         const currentItemIds = new Set(updatedOrder.items.map(i => i.id));
