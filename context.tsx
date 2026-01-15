@@ -163,6 +163,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         technicalLog: item.nhat_ky_ky_thuat || item.technicalLog,
         notes: item.ghi_chu || item.notes || undefined,
         assignedMembers: item.nhan_vien_phu_trach || item.assignedMembers || undefined,
+        commissions: item.hoa_hong || item.commissions || undefined,
         stageAssignments: item.gan_nhan_vien_theo_buoc || item.stageAssignments || undefined
       })),
       totalAmount: vnOrder.tong_tien || vnOrder.totalAmount || 0,
@@ -507,7 +508,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Load items separately - only select columns that exist
       const itemsResult = await supabase
         .from(DB_TABLES.SERVICE_ITEMS)
-        .select('id, id_don_hang, ten_hang_muc, loai, don_gia, so_luong, trang_thai, id_ky_thuat_vien, la_san_pham, id_dich_vu_goc, id_quy_trinh, anh_truoc, anh_sau, lich_su_thuc_hien, nhat_ky_ky_thuat, cap_nhat_cuoi, phan_cong_tasks, gan_nhan_vien_theo_buoc, nhan_vien_phu_trach')
+        .select('id, id_don_hang, ten_hang_muc, loai, don_gia, so_luong, trang_thai, id_ky_thuat_vien, la_san_pham, id_dich_vu_goc, id_quy_trinh, anh_truoc, anh_sau, lich_su_thuc_hien, nhat_ky_ky_thuat, cap_nhat_cuoi, phan_cong_tasks, gan_nhan_vien_theo_buoc, nhan_vien_phu_trach, hoa_hong')
         .limit(500);
 
       if (itemsResult.error) {
@@ -963,6 +964,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (item.lastUpdated) itemData.cap_nhat_cuoi = item.lastUpdated;
         if (item.technicalLog && item.technicalLog.length > 0) itemData.nhat_ky_ky_thuat = item.technicalLog;
         if ((item as any).stageAssignments) itemData.gan_nhan_vien_theo_buoc = (item as any).stageAssignments;
+        if (item.commissions) itemData.hoa_hong = item.commissions;
 
         return itemData;
       });
@@ -1139,6 +1141,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (item.assignedMembers && item.assignedMembers.length > 0) {
             itemData.nhan_vien_phu_trach = item.assignedMembers;
           }
+          if (item.commissions) {
+            itemData.hoa_hong = item.commissions;
+          }
           if ((item as any).stageAssignments) itemData.gan_nhan_vien_theo_buoc = (item as any).stageAssignments;
 
           return itemData;
@@ -1147,7 +1152,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // PRESERVE existing data before upsert: Load current items to preserve history, technicalLog, phan_cong_tasks
         const { data: existingItemsData } = await supabase
           .from(DB_TABLES.SERVICE_ITEMS)
-          .select('id, lich_su_thuc_hien, nhat_ky_ky_thuat, cap_nhat_cuoi, phan_cong_tasks, ghi_chu, nhan_vien_phu_trach')
+          .select('id, lich_su_thuc_hien, nhat_ky_ky_thuat, cap_nhat_cuoi, phan_cong_tasks, ghi_chu, nhan_vien_phu_trach, hoa_hong')
           .eq('id_don_hang', orderId);
 
         // Merge preserved data into itemsToUpsert
@@ -1179,6 +1184,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               // PRESERVE assignedMembers if not provided
               if (!itemData.nhan_vien_phu_trach && existing.nhan_vien_phu_trach) {
                 itemData.nhan_vien_phu_trach = existing.nhan_vien_phu_trach;
+              }
+              // PRESERVE commissions if not provided
+              if (!itemData.hoa_hong && existing.hoa_hong) {
+                itemData.hoa_hong = existing.hoa_hong;
               }
             }
           });

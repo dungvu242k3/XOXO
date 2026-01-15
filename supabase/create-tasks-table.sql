@@ -151,3 +151,6 @@ ADD COLUMN IF NOT EXISTS loai_giam_gia text DEFAULT 'money'; -- 'money' hoặc '
 ALTER TABLE don_hang 
 ADD COLUMN IF NOT EXISTS giam_gia numeric DEFAULT 0,
 ADD COLUMN IF NOT EXISTS phi_phat_sinh numeric DEFAULT 0;
+
+ALTER TABLE hang_muc_dich_vu
+ADD COLUMN IF NOT EXISTS hoa_hong jsonb DEFAULT '{}'::jsonb;

@@ -77,6 +77,12 @@ export interface ServiceItem {
   technicalLog?: TechnicalLog[]; // Added for persistent notes between stages
   notes?: string; // Ghi chú cho item
   assignedMembers?: string[]; // Danh sách ID nhân sự phụ trách item (chung cho cả item)
+  commissions?: {
+    [memberId: string]: {
+      value: number;
+      type: 'money' | 'percent';
+    }
+  };
   stageAssignments?: StageAssignment[]; // Danh sách nhân sự phụ trách từng bước
 }
 

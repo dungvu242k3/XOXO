@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useAppStore } from '../context';
 import { DB_PATHS, supabase } from '../supabase';
 import { Member, Order, OrderStatus, ServiceCatalogItem, ServiceItem, ServiceType, TodoStep, WorkflowDefinition } from '../types';
+import CommissionRow from './CommissionRow';
 
 // Utility for formatting currency
 const formatCurrency = (amount: number) => {
@@ -1015,6 +1016,9 @@ export const Orders: React.FC = () => {
   const [pendingStageAssignments, setPendingStageAssignments] = useState<{
     [key: string]: string[]; // "serviceId-stageId" -> member IDs
   }>({});
+  const [editingItemCommissions, setEditingItemCommissions] = useState<{ [key: string]: { value: number, type: 'money' | 'percent' } }>({});
+  const [editingEditItemCommissions, setEditingEditItemCommissions] = useState<{ [key: string]: { value: number, type: 'money' | 'percent' } }>({});
+
 
   // Edit Order Form State
   const [editOrderItems, setEditOrderItems] = useState<ServiceItem[]>([]);
@@ -1033,6 +1037,39 @@ export const Orders: React.FC = () => {
   const [editingEditItemIndex, setEditingEditItemIndex] = useState<number | null>(null);
   const [editingEditItemNotes, setEditingEditItemNotes] = useState<string>('');
   const [editingEditItemAssignedMembers, setEditingEditItemAssignedMembers] = useState<string[]>([]);
+
+  const handleSaveItemEdit = (isEditOrder: boolean) => {
+    if (isEditOrder) {
+      if (editingEditItemIndex === null) return;
+      const updatedItems = [...editOrderItems];
+      updatedItems[editingEditItemIndex] = {
+        ...updatedItems[editingEditItemIndex],
+        notes: editingEditItemNotes,
+        assignedMembers: editingEditItemAssignedMembers,
+        commissions: editingEditItemCommissions
+      };
+      setEditOrderItems(updatedItems);
+      setEditingEditItemIndex(null);
+    } else {
+      if (editingItemIndex === null) return;
+      const updatedItems = [...newOrderItems];
+      updatedItems[editingItemIndex] = {
+        ...updatedItems[editingItemIndex],
+        notes: editingItemNotes,
+        assignedMembers: editingItemAssignedMembers,
+        commissions: editingItemCommissions
+      };
+      setNewOrderItems(updatedItems);
+      setEditingItemIndex(null);
+    }
+    // Clear temp states
+    setEditingItemNotes('');
+    setEditingEditItemNotes('');
+    setEditingItemAssignedMembers([]);
+    setEditingEditItemAssignedMembers([]);
+    setEditingItemCommissions({});
+    setEditingEditItemCommissions({});
+  };
 
   const toggleSelectOrder = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1205,33 +1242,7 @@ export const Orders: React.FC = () => {
   };
 
   // Handle save item edits
-  const handleSaveItemEdit = (isEditMode: boolean = false) => {
-    if (isEditMode) {
-      if (editingEditItemIndex === null) return;
-      const updated = [...editOrderItems];
-      updated[editingEditItemIndex] = {
-        ...updated[editingEditItemIndex],
-        notes: editingEditItemNotes.trim() || undefined,
-        assignedMembers: editingEditItemAssignedMembers.length > 0 ? editingEditItemAssignedMembers : undefined
-      };
-      setEditOrderItems(updated);
-      setEditingEditItemIndex(null);
-      setEditingEditItemNotes('');
-      setEditingEditItemAssignedMembers([]);
-    } else {
-      if (editingItemIndex === null) return;
-      const updated = [...newOrderItems];
-      updated[editingItemIndex] = {
-        ...updated[editingItemIndex],
-        notes: editingItemNotes.trim() || undefined,
-        assignedMembers: editingItemAssignedMembers.length > 0 ? editingItemAssignedMembers : undefined
-      };
-      setNewOrderItems(updated);
-      setEditingItemIndex(null);
-      setEditingItemNotes('');
-      setEditingItemAssignedMembers([]);
-    }
-  };
+
 
   // Helper functions for staff assignment
   const makeAssignmentKey = (serviceId: string, stageId: string) => `${serviceId}-${stageId}`;
@@ -1403,7 +1414,24 @@ export const Orders: React.FC = () => {
       id: '', // Tạm thời để trống, sẽ được cập nhật sau khi tạo
       customerId: selectedCustomerId,
       customerName: customer?.name || 'Khách lẻ',
-      items: itemsWithAssignment, // Không cần tạo ID cho items - database tự tạo
+      items: itemsWithAssignment.map(item => {
+        // Convert commission percentage to money
+        if (item.commissions) {
+          const commissions: any = {};
+          Object.entries(item.commissions).forEach(([memberId, comm]: [string, any]) => {
+            if (comm.type === 'percent') {
+              commissions[memberId] = {
+                value: (item.price * (comm.value || 0)) / 100,
+                type: 'money'
+              };
+            } else {
+              commissions[memberId] = comm;
+            }
+          });
+          return { ...item, commissions };
+        }
+        return item;
+      }), // Không cần tạo ID cho items - database tự tạo
       totalAmount: totalAmount,
       deposit: deposit,
       status: OrderStatus.PENDING,
@@ -1530,6 +1558,12 @@ export const Orders: React.FC = () => {
 
 
   const handleUpdateTaskAssignment = async (itemId: string, orderId: string, taskId: string, assignedTo: string[]) => {
+    // Prevent 406 error: Don't query Supabase if we don't have a valid ID (new item)
+    if (!itemId || !orderId || itemId === '' || orderId === '') {
+      console.warn('⚠️ handleUpdateTaskAssignment: Skipped DB update because itemId or orderId is missing (local item).');
+      return;
+    }
+
     try {
       // 1. Get current phan_cong_tasks from database
       const { data, error: fetchError } = await supabase
@@ -1600,6 +1634,22 @@ export const Orders: React.FC = () => {
       if (item.assignedMembers && item.assignedMembers.length > 0) {
         cleaned.assignedMembers = item.assignedMembers;
       }
+      if (item.commissions) {
+        // Convert percentage to money before saving (Snapshot value)
+        const commissions: any = {};
+        Object.entries(item.commissions).forEach(([memberId, comm]: [string, any]) => {
+          if (comm.type === 'percent') {
+            commissions[memberId] = {
+              value: (item.price * (comm.value || 0)) / 100,
+              type: 'money'
+            };
+          } else {
+            commissions[memberId] = comm;
+          }
+        });
+        cleaned.commissions = commissions;
+      }
+      if ((item as any).stageAssignments) cleaned.stageAssignments = (item as any).stageAssignments;
 
       return cleaned;
     });
@@ -2696,22 +2746,92 @@ export const Orders: React.FC = () => {
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="font-medium text-slate-300">{formatPrice(item.price)} ₫</span>
-                          <button
-                            onClick={() => handleEditItem(idx, false)}
-                            className="p-1.5 hover:bg-gold-900/20 hover:text-gold-400 text-slate-500 rounded transition-colors"
-                            title="Thêm ghi chú và nhân sự"
-                          >
-                            <Plus size={16} />
-                          </button>
-                          <button onClick={() => {
-                            const newItems = [...newOrderItems];
-                            newItems.splice(idx, 1);
-                            setNewOrderItems(newItems);
-                          }} className="p-1 hover:text-red-500 text-slate-500">
-                            <Trash2 size={16} />
-                          </button>
+                        <div className="flex items-start gap-3 flex-shrink-0">
+                          {/* Commission Inputs for New Order Items */}
+                          {(() => {
+                            // Gather all unique members assigned to this item across all stages
+                            const allAssignedMemberIds = new Set<string>();
+                            if ((item as any).stageAssignments) {
+                              (item as any).stageAssignments.forEach((sa: any) => {
+                                if (sa.assignedMemberIds) {
+                                  sa.assignedMemberIds.forEach((id: string) => allAssignedMemberIds.add(id));
+                                }
+                              });
+                            }
+
+                            const assignedMembersList = Array.from(allAssignedMemberIds);
+
+                            if (assignedMembersList.length > 0) {
+                              return (
+                                <div className="flex flex-col gap-1 items-end">
+                                  <div className="text-[9px] font-bold text-slate-500 uppercase">CHIA HOA HỒNG</div>
+                                  {assignedMembersList.map(memberId => {
+                                    const member = members.find(m => m.id === memberId);
+                                    if (!member) return null;
+                                    const comm = item.commissions?.[memberId] || { value: 0, type: 'money' };
+
+                                    return (
+                                      <CommissionRow
+                                        key={memberId}
+                                        member={member}
+                                        commission={comm}
+                                        itemPrice={item.price}
+                                        onUpdate={(val, type) => {
+                                          const newItems = [...newOrderItems];
+                                          const currentCommissions = newItems[idx].commissions || {};
+
+                                          // Immediate conversion: Snap to money if percent is selected
+                                          let finalValue = val;
+                                          let finalType = type;
+                                          if (type === 'percent') {
+                                            finalValue = (item.price * val) / 100;
+                                            finalType = 'money';
+                                          }
+
+                                          newItems[idx].commissions = {
+                                            ...currentCommissions,
+                                            [memberId]: { value: finalValue, type: finalType }
+                                          };
+                                          setNewOrderItems(newItems);
+                                        }}
+                                        onDelete={() => {
+                                          const newItems = [...newOrderItems];
+                                          // 1. Remove from assignedMembers
+                                          const currentAssigned = newItems[idx].assignedMembers || [];
+                                          newItems[idx].assignedMembers = currentAssigned.filter(id => id !== memberId);
+
+                                          // 2. Remove from commissions
+                                          const currentCommissions = { ...newItems[idx].commissions };
+                                          delete currentCommissions[memberId];
+                                          newItems[idx].commissions = currentCommissions;
+
+                                          setNewOrderItems(newItems);
+                                        }}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-slate-300">{formatPrice(item.price)} ₫</span>
+                            <button
+                              onClick={() => handleEditItem(idx, false)}
+                              className="p-1.5 hover:bg-gold-900/20 hover:text-gold-400 text-slate-500 rounded transition-colors"
+                              title="Thêm ghi chú và nhân sự"
+                            >
+                              <Plus size={16} />
+                            </button>
+                            <button onClick={() => {
+                              const newItems = [...newOrderItems];
+                              newItems.splice(idx, 1);
+                              setNewOrderItems(newItems);
+                            }} className="p-1 hover:text-red-500 text-slate-500">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -2756,69 +2876,144 @@ export const Orders: React.FC = () => {
                                 {wf.stages.sort((a, b) => a.order - b.order).map(stage => {
                                   // Check existing assignments for this item
                                   const currentAssignments = (item as any).stageAssignments?.find((sa: any) => sa.stageId === stage.id)?.assignedMemberIds || [];
-
-                                  // Unique key for open state
-                                  const selectorKey = `new-item-${idx}-${stage.id}`;
+                                  const selectorKey = `selector-${idx}-${stage.id}`;
 
                                   return (
-                                    <div className="flex items-center justify-between bg-neutral-900/40 p-1.5 rounded border border-neutral-700/50">
-                                      <span className="text-xs text-slate-400">{stage.name}</span>
-                                      <div className="relative">
-                                        <button
-                                          onClick={() => setOpenStageSelector(openStageSelector === selectorKey ? null : selectorKey)}
-                                          className="flex items-center gap-1 text-[10px] bg-neutral-800 px-2 py-1 rounded border border-neutral-600 hover:border-gold-500 text-slate-300"
+                                    <div key={stage.id} className="flex items-center gap-2 flex-shrink-0 justify-between">
+                                      <div className="flex flex-col items-start w-full">
+                                        <div
+                                          onClick={() => {
+                                            handleEditItem(idx, false);
+                                            setEditingItemCommissions(item.commissions || {});
+                                          }}
+                                          className="p-1.5 hover:bg-gold-900/20 hover:text-gold-400 text-slate-500 rounded transition-colors cursor-pointer w-full group"
+                                          title="Thêm ghi chú và nhân sự"
                                         >
-                                          {currentAssignments.length > 0 ? `${currentAssignments.length} nhân sự` : 'Chọn nhân sự'}
-                                          <Users size={10} />
-                                        </button>
+                                          <div className="flex items-center justify-between bg-neutral-900/40 p-1.5 rounded border border-neutral-700/50 group-hover:border-gold-500/50">
+                                            <span className="text-xs text-slate-300 mr-2">{stage.name}</span>
+                                            <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setOpenStageSelector(openStageSelector === selectorKey ? null : selectorKey);
+                                                }}
+                                                className="flex items-center gap-1 text-[10px] bg-neutral-800 px-2 py-1 rounded border border-neutral-600 hover:border-gold-500 text-slate-300"
+                                              >
+                                                {currentAssignments.length > 0 ? `${currentAssignments.length} nhân sự` : 'Chọn nhân sự'}
+                                                <Users size={10} />
+                                              </button>
 
-                                        {openStageSelector === selectorKey && (
-                                          <>
-                                            <div className="fixed inset-0 z-40" onClick={() => setOpenStageSelector(null)} />
-                                            <div className="absolute right-0 z-50 mt-1 w-48 bg-neutral-800 border border-neutral-700 rounded shadow-xl max-h-40 overflow-y-auto">
-                                              {members.map(m => (
-                                                <label key={m.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-700 cursor-pointer">
-                                                  <input type="checkbox"
-                                                    checked={currentAssignments.includes(m.id)}
-                                                    onChange={(e) => {
-                                                      // Update newOrderItems[idx].stageAssignments
-                                                      const newItems = [...newOrderItems];
-                                                      const currentItem = { ...newItems[idx] };
-                                                      let stageAssignments = (currentItem as any).stageAssignments ? [...(currentItem as any).stageAssignments] : [];
+                                              {openStageSelector === selectorKey && (
+                                                <>
+                                                  <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpenStageSelector(null); }} />
+                                                  <div className="absolute right-0 z-50 mt-1 w-48 bg-neutral-800 border border-neutral-700 rounded shadow-xl max-h-40 overflow-y-auto">
+                                                    {members.map(m => (
+                                                      <label key={m.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-neutral-700 cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                                        <input type="checkbox"
+                                                          checked={currentAssignments.includes(m.id)}
+                                                          onChange={(e) => {
+                                                            // Update newOrderItems[idx].stageAssignments
+                                                            const newItems = [...newOrderItems];
+                                                            const currentItem = { ...newItems[idx] };
+                                                            let stageAssignments = (currentItem as any).stageAssignments ? [...(currentItem as any).stageAssignments] : [];
 
-                                                      // Find or create assignment for this stage
-                                                      let saIndex = stageAssignments.findIndex((sa: any) => sa.stageId === stage.id);
-                                                      if (saIndex === -1) {
-                                                        stageAssignments.push({ stageId: stage.id, assignedMemberIds: [] });
-                                                        saIndex = stageAssignments.length - 1;
-                                                      }
+                                                            // Find or create assignment for this stage
+                                                            let saIndex = stageAssignments.findIndex((sa: any) => sa.stageId === stage.id);
+                                                            if (saIndex === -1) {
+                                                              stageAssignments.push({ stageId: stage.id, assignedMemberIds: [] });
+                                                              saIndex = stageAssignments.length - 1;
+                                                            }
 
-                                                      let ids = [...stageAssignments[saIndex].assignedMemberIds];
-                                                      if (e.target.checked) ids.push(m.id);
-                                                      else ids = ids.filter((id: string) => id !== m.id);
+                                                            let ids = [...stageAssignments[saIndex].assignedMemberIds];
+                                                            if (e.target.checked) ids.push(m.id);
+                                                            else ids = ids.filter((id: string) => id !== m.id);
 
-                                                      stageAssignments[saIndex] = { ...stageAssignments[saIndex], assignedMemberIds: ids };
-                                                      (currentItem as any).stageAssignments = stageAssignments;
-                                                      newItems[idx] = currentItem;
-                                                      setNewOrderItems(newItems);
-                                                    }}
-                                                    className="rounded border-neutral-600 bg-neutral-900 text-gold-500"
-                                                  />
-                                                  <span className="text-xs text-slate-300">{m.name}</span>
-                                                </label>
-                                              ))}
+                                                            stageAssignments[saIndex] = { ...stageAssignments[saIndex], assignedMemberIds: ids };
+                                                            (currentItem as any).stageAssignments = stageAssignments;
+                                                            newItems[idx] = currentItem;
+                                                            setNewOrderItems(newItems);
+                                                          }}
+                                                          className="rounded border-neutral-600 bg-neutral-900 text-gold-500"
+                                                        />
+                                                        <span className="text-xs text-slate-300">{m.name}</span>
+                                                      </label>
+                                                    ))}
+                                                  </div>
+                                                </>
+                                              )}
                                             </div>
-                                          </>
-                                        )}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex flex-col items-end gap-1">
+
+                                        {(() => {
+                                          const allAssignedMemberIds = new Set<string>();
+                                          if ((item as any).stageAssignments) {
+                                            (item as any).stageAssignments.forEach((sa: any) => {
+                                              if (sa.assignedMemberIds) sa.assignedMemberIds.forEach((id: string) => allAssignedMemberIds.add(id));
+                                            });
+                                          }
+                                          const assignedMembersList = Array.from(allAssignedMemberIds);
+
+                                          if (false) { // Disabled duplicate commission block
+                                            return (
+                                              <div className="flex flex-col gap-1 items-end mt-1">
+                                                <div className="text-[9px] font-bold text-slate-500 uppercase">CHIA HOA HỒNG</div>
+                                                {assignedMembersList.map(memberId => {
+                                                  const member = members.find(m => m.id === memberId);
+                                                  if (!member) return null;
+                                                  const comm = item.commissions?.[memberId] || { value: 0, type: 'money' };
+                                                  return (
+                                                    <div key={memberId} className="flex items-center gap-1 bg-neutral-900/40 p-1 rounded border border-neutral-700/50">
+                                                      <div className="flex items-center gap-1">
+                                                        {member.avatar ? <img src={member.avatar} alt="" className="w-4 h-4 rounded-full" /> : <div className="w-4 h-4 rounded-full bg-neutral-700 text-[8px] flex items-center justify-center text-slate-300">{member.name.charAt(0)}</div>}
+                                                        <span className="text-[10px] text-slate-300 max-w-[50px] truncate">{member.name}</span>
+                                                      </div>
+                                                      <div className="flex gap-0.5 bg-neutral-800 rounded p-0.5 border border-neutral-700">
+                                                        <button onClick={() => {
+                                                          const newItems = [...newOrderItems];
+                                                          const currentCommissions = newItems[idx].commissions || {};
+                                                          newItems[idx].commissions = { ...currentCommissions, [memberId]: { ...comm, type: 'money' } };
+                                                          setNewOrderItems(newItems);
+                                                        }} className={`px-1 py-0.5 text-[8px] rounded ${comm.type === 'money' ? 'bg-gold-500 text-black font-bold' : 'text-slate-500 hover:text-slate-300'}`}>₫</button>
+                                                        <button onClick={() => {
+                                                          const newItems = [...newOrderItems];
+                                                          const currentCommissions = newItems[idx].commissions || {};
+                                                          newItems[idx].commissions = { ...currentCommissions, [memberId]: { ...comm, type: 'percent' } };
+                                                          setNewOrderItems(newItems);
+                                                        }} className={`px-1 py-0.5 text-[8px] rounded ${comm.type === 'percent' ? 'bg-gold-500 text-black font-bold' : 'text-slate-500 hover:text-slate-300'}`}>%</button>
+                                                      </div>
+                                                      <input type="text" value={comm.value ? formatNumber(comm.value) : ''} onChange={(e) => {
+                                                        const val = parseFloat(e.target.value.replace(/\./g, '')) || 0;
+                                                        const newItems = [...newOrderItems];
+                                                        const currentCommissions = newItems[idx].commissions || {};
+                                                        newItems[idx].commissions = { ...currentCommissions, [memberId]: { ...comm, value: val } };
+                                                        setNewOrderItems(newItems);
+                                                      }} className="w-14 bg-neutral-950 border border-neutral-700 rounded px-1 py-0.5 text-right text-[10px] text-gold-500 font-bold outline-none" placeholder="0" />
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            );
+                                          }
+                                          return null;
+                                        })()}
                                       </div>
                                     </div>
                                   );
                                 })}
+
+
+
                               </div>
                             );
                           })()}
                         </div>
-                      )}
+                      )
+                      }
                     </div>
                   ))}
                   {newOrderItems.length === 0 && (
@@ -2829,9 +3024,9 @@ export const Orders: React.FC = () => {
                 </div>
 
                 {/* Discount and Additional Fees */}
-                <div className="mt-4 pt-4 border-t border-neutral-800 space-y-4">
+                < div className="mt-4 pt-4 border-t border-neutral-800 space-y-4" >
                   {/* Deposit and Expected Delivery */}
-                  <div className="grid grid-cols-2 gap-4">
+                  < div className="grid grid-cols-2 gap-4" >
                     <div>
                       <label className="block text-sm font-bold text-slate-300 mb-2">
                         Tiền Cọc <span className="text-slate-500 text-xs">VNĐ</span>
@@ -2973,7 +3168,7 @@ export const Orders: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div >
       )
       }
 
@@ -3156,19 +3351,89 @@ export const Orders: React.FC = () => {
                                 )}
 
                               </div>
+
+
                             </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <span className="font-medium text-slate-300">{formatPrice(item.price)} ₫</span>
-                              <button
-                                onClick={() => handleEditItem(idx, true)}
-                                className="p-1.5 hover:bg-gold-900/20 hover:text-gold-400 text-slate-500 rounded transition-colors"
-                                title="Thêm ghi chú và nhân sự"
-                              >
-                                <Plus size={16} />
-                              </button>
-                              <button onClick={() => handleEditRemoveItem(idx)} className="p-1 hover:text-red-500 text-slate-500">
-                                <Trash2 size={16} />
-                              </button>
+                            <div className="flex items-start gap-3 flex-shrink-0">
+                              {(() => {
+                                const allAssignedMemberIds = new Set<string>();
+                                if (item.assignedMembers) item.assignedMembers.forEach(id => allAssignedMemberIds.add(id));
+                                if ((item as any).stageAssignments) {
+                                  (item as any).stageAssignments.forEach((sa: any) => {
+                                    if (sa.assignedMemberIds) sa.assignedMemberIds.forEach((id: string) => allAssignedMemberIds.add(id));
+                                  });
+                                }
+                                const assignedMembersList = Array.from(allAssignedMemberIds);
+
+                                if (assignedMembersList.length > 0) {
+                                  return (
+                                    <div className="flex flex-col gap-1 items-end">
+                                      <div className="text-[9px] font-bold text-slate-500 uppercase">CHIA HOA HỒNG</div>
+                                      {assignedMembersList.map(memberId => {
+                                        const member = members.find(m => m.id === memberId);
+                                        if (!member) return null;
+                                        const comm = item.commissions?.[memberId] || { value: 0, type: 'money' };
+                                        return (
+                                          <CommissionRow
+                                            key={memberId}
+                                            member={member}
+                                            commission={comm}
+                                            itemPrice={item.price}
+                                            onUpdate={(val, type) => {
+                                              const newItems = [...editOrderItems];
+                                              const currentCommissions = newItems[idx].commissions || {};
+
+                                              // Immediate conversion: Snap to money if percent is selected
+                                              let finalValue = val;
+                                              let finalType = type;
+                                              if (type === 'percent') {
+                                                finalValue = (item.price * val) / 100;
+                                                finalType = 'money';
+                                              }
+
+                                              newItems[idx].commissions = {
+                                                ...currentCommissions,
+                                                [memberId]: { value: finalValue, type: finalType }
+                                              };
+                                              setEditOrderItems(newItems);
+                                            }}
+                                            onDelete={() => {
+                                              const newItems = [...editOrderItems];
+                                              // 1. Remove from assignedMembers
+                                              const currentAssigned = newItems[idx].assignedMembers || [];
+                                              newItems[idx].assignedMembers = currentAssigned.filter(id => id !== memberId);
+
+                                              // 2. Remove from commissions
+                                              const currentCommissions = { ...newItems[idx].commissions };
+                                              delete currentCommissions[memberId];
+                                              newItems[idx].commissions = currentCommissions;
+
+                                              setEditOrderItems(newItems);
+                                            }}
+                                          />
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium text-slate-300">{formatPrice(item.price)} ₫</span>
+                                <button
+                                  onClick={() => {
+                                    handleEditItem(idx, true);
+                                    setEditingItemCommissions(item.commissions || {});
+                                  }}
+                                  className="p-1.5 hover:bg-gold-900/20 hover:text-gold-400 text-slate-500 rounded transition-colors"
+                                  title="Thêm ghi chú và nhân sự"
+                                >
+                                  <Plus size={16} />
+                                </button>
+                                <button onClick={() => handleEditRemoveItem(idx)} className="p-1 hover:text-red-500 text-slate-500">
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
                             </div>
                           </div>
 
@@ -3179,7 +3444,27 @@ export const Orders: React.FC = () => {
                               workflows={workflows}
                               members={members || []}
                               onUpdateTaskAssignment={async (taskId: string, assignedTo: string[]) => {
-                                // Update task assignment in database
+                                // Prevent 406 error for new items (no ID)
+                                if (!item.id) {
+                                  const newItems = [...editOrderItems];
+                                  const currentItem = newItems[idx] as any;
+                                  const currentAssignments = (currentItem.phan_cong_tasks || []) as Array<{ taskId: string; assignedTo: string[]; completed: boolean }>;
+                                  const existingIndex = currentAssignments.findIndex(a => a.taskId === taskId);
+
+                                  let newAssignments;
+                                  if (existingIndex >= 0) {
+                                    newAssignments = [...currentAssignments];
+                                    newAssignments[existingIndex] = { ...newAssignments[existingIndex], assignedTo };
+                                  } else {
+                                    newAssignments = [...currentAssignments, { taskId, assignedTo, completed: false }];
+                                  }
+
+                                  newItems[idx] = { ...newItems[idx], phan_cong_tasks: newAssignments } as any;
+                                  setEditOrderItems(newItems);
+                                  return;
+                                }
+
+                                // Update task assignment in database for existing items
                                 try {
                                   const { data: currentItem } = await supabase
                                     .from(DB_PATHS.SERVICE_ITEMS)
@@ -3466,14 +3751,11 @@ export const Orders: React.FC = () => {
                               {member.avatar ? (
                                 <img src={member.avatar} alt="" className="w-8 h-8 rounded-full" />
                               ) : (
-                                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
-                                  {member.name.charAt(0).toUpperCase()}
+                                <div className="w-8 h-8 rounded-full bg-neutral-700 flex items-center justify-center text-xs font-bold text-slate-300">
+                                  {member.name.charAt(0)}
                                 </div>
                               )}
-                              <div>
-                                <div className="text-sm font-medium text-slate-200">{member.name}</div>
-                                <div className="text-xs text-slate-500">{member.role} • {member.department || 'N/A'}</div>
-                              </div>
+                              <span className="text-sm text-slate-200 font-medium">{member.name}</span>
                             </div>
                           </label>
                         );
