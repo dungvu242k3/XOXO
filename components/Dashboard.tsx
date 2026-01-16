@@ -1,7 +1,7 @@
+import { AlertCircle, Calendar, DollarSign, Phone, ShoppingBag, Users } from 'lucide-react';
 import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { DollarSign, ShoppingBag, Users, AlertCircle, Phone, Calendar } from 'lucide-react';
-import { REVENUE_DATA, MOCK_CRM_TASKS } from '../constants';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { MOCK_CRM_TASKS, REVENUE_DATA } from '../constants';
 import { CRMTask } from '../types';
 
 const KPICard = ({ title, value, icon: Icon, trend }: { title: string, value: string, icon: any, trend: string }) => (
@@ -19,7 +19,7 @@ const KPICard = ({ title, value, icon: Icon, trend }: { title: string, value: st
 
 const CRMTaskRow: React.FC<{ task: CRMTask }> = ({ task }) => {
   const getTaskLabel = (type: string) => {
-    switch(type) {
+    switch (type) {
       case 'Call Day 3': return 'Gọi chăm sóc ngày 3';
       case 'Call Day 5': return 'Gọi chăm sóc ngày 5';
       case 'Call Day 7': return 'Gọi chăm sóc ngày 7';
@@ -28,7 +28,7 @@ const CRMTaskRow: React.FC<{ task: CRMTask }> = ({ task }) => {
   };
 
   const getStatusLabel = (status: string) => {
-    switch(status) {
+    switch (status) {
       case 'Pending': return 'Chờ xử lý';
       case 'Overdue': return 'Quá hạn';
       case 'Done': return 'Hoàn thành';
@@ -81,18 +81,18 @@ export const Dashboard: React.FC = () => {
             </select>
           </div>
           <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <AreaChart data={REVENUE_DATA}>
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#c68a35" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#c68a35" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#c68a35" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#c68a35" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#737373'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#737373'}} tickFormatter={(value) => `${value/1000000}M`} />
-                <Tooltip 
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#737373' }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#737373' }} tickFormatter={(value) => `${value / 1000000}M`} />
+                <Tooltip
                   contentStyle={{ backgroundColor: '#171717', borderRadius: '8px', border: '1px solid #333', color: '#fff' }}
                   itemStyle={{ color: '#c68a35' }}
                   formatter={(value: number) => [`${value.toLocaleString('vi-VN')} ₫`, 'Doanh thu']}
